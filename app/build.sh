@@ -57,13 +57,43 @@ javac -encoding UTF-8 -source 8 -target 8 -nowarn -Xlint:-options \
 
 echo "==> aapt2 compile + link"
 $AAPT2 compile --dir $APP/res -o $BUILD/res.zip
+# Compile AAR resources and collect library packages for R class generation.
+# (Without this, SDK code referencing its own R class crashes with
+# NoClassDefFoundError at runtime, e.g. androidx.startup.R$string.)
+mkdir -p $BUILD/aar-res $BUILD/gen
+> $BUILD/aar-res-args.txt
+EXTRA_PKGS=""
+for aar in $APP/libs/*.aar; do
+    base=$(basename $aar .aar)
+    pkg=$(unzip -p "$aar" AndroidManifest.xml 2>/dev/null | grep -oE 'package="[^"]+"' | head -1 | cut -d'"' -f2)
+    if [ -n "$pkg" ] && [ "$pkg" != "com.dips.adblocktest" ]; then
+        EXTRA_PKGS="$EXTRA_PKGS:$pkg"
+    fi
+    if unzip -l "$aar" 2>/dev/null | grep -q " res/"; then
+        dest=$BUILD/aar-res/$base
+        rm -rf "$dest" && mkdir -p "$dest"
+        unzip -o -q "$aar" 'res/*' -d "$dest" 2>/dev/null || true
+        if [ -d "$dest/res" ]; then
+            if $AAPT2 compile --dir "$dest/res" -o "$dest/res.zip" 2>/dev/null; then
+                echo "-R $dest/res.zip" >> $BUILD/aar-res-args.txt
+            fi
+        fi
+    fi
+done
+EXTRA_PKGS=$(echo "$EXTRA_PKGS" | sed 's/^://')
 $AAPT2 link -o $BUILD/base.apk \
     -I $ANDROID_JAR \
     --manifest $APP/AndroidManifest.xml \
     --auto-add-overlay \
     --min-sdk-version 24 --target-sdk-version 36 \
     --version-code $VERSION_CODE --version-name $VERSION_NAME \
-    -R $BUILD/res.zip
+    --java $BUILD/gen \
+    --extra-packages "$EXTRA_PKGS" \
+    -R $BUILD/res.zip $(cat $BUILD/aar-res-args.txt | tr '\n' ' ')
+echo "==> compiling generated R classes"
+find $BUILD/gen -name '*.java' > $BUILD/r-sources.txt
+javac -encoding UTF-8 -source 8 -target 8 -nowarn -Xlint:-options \
+    -cp "$ANDROID_JAR" -d $BUILD/classes @$BUILD/r-sources.txt
 
 echo "==> d8"
 cd $BUILD/classes && zip -q -r $BUILD/app-classes.jar . && cd $APP
@@ -74,10 +104,29 @@ DEX_INPUTS=$(python3 $APP/tools/dedupe_jars.py $BUILD/dex-inputs.txt $BUILD/filt
 $D8 --release --min-api 24 --lib $ANDROID_JAR \
     --output $BUILD/dex $DEX_INPUTS
 
-echo "==> add dex, zipalign, sign"
+echo "==> add dex, native libs, zipalign, sign"
 for dex in $BUILD/dex/*.dex; do
     zip -j -q $BUILD/base.apk $dex
 done
+# Package native .so files from AARs (e.g. Unity's coherencelib) under lib/<abi>/
+rm -rf $BUILD/apk-lib && mkdir -p $BUILD/apk-lib
+for aar in $APP/libs/*.aar; do
+    if unzip -l "$aar" 2>/dev/null | grep -q "jni/"; then
+        dest=$BUILD/aar-res/$(basename $aar .aar)
+        unzip -o -q "$aar" 'jni/*' -d "$dest" 2>/dev/null || true
+        if [ -d "$dest/jni" ]; then
+            for abi in "$dest/jni"/*; do
+                [ -d "$abi" ] || continue
+                abiname=$(basename "$abi")
+                mkdir -p "$BUILD/apk-lib/lib/$abiname"
+                cp -f "$abi"/*.so "$BUILD/apk-lib/lib/$abiname/" 2>/dev/null || true
+            done
+        fi
+    fi
+done
+if [ -d "$BUILD/apk-lib/lib" ]; then
+    (cd $BUILD/apk-lib && zip -q -r $BUILD/base.apk lib)
+fi
 $ZIPALIGN -f 4 $BUILD/base.apk $BUILD/aligned.apk
 
 KS=$APP/debug.keystore

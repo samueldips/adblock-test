@@ -23,12 +23,23 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:enableOnBackInvokedCallback="false"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Diagnostic crash catcher: must init before all SDK providers -->
+        <provider
+            android:name=".CrashCatcher"
+            android:authorities="com.dips.adblocktest.crashcatcher"
+            android:exported="false" />
+        <activity
+            android:name=".CrashActivity"
+            android:process=":crash"
+            android:exported="false" />
 
         <!-- AdMob -->
         <meta-data
