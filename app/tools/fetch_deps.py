@@ -73,33 +73,53 @@ def parse_deps(pom_bytes):
         deps.append((g, a, v, typ))
     return deps, parent
 
+def ver_key(v):
+    """Comparable version key. Non-numeric parts sort lower."""
+    return tuple(int(x) for x in re.findall(r'\d+', v))
+
 def main():
     libs = sys.argv[1] if len(sys.argv) > 1 else "libs"
     os.makedirs(libs, exist_ok=True)
-    seen = {}  # (g,a) -> (version, repo)
+    # Pass 1: BFS the full dependency graph, keeping the NEWEST version seen
+    # for each (group, artifact) -- this is what Gradle does. First-wins
+    # silently mixes incompatible versions (e.g. lifecycle-runtime 2.0.0
+    # with lifecycle-runtime-ktx 2.6.1) and causes runtime crashes like
+    # NoSuchFieldError.
+    max_ver = {}   # (g,a) -> version
+    max_hint = {}  # (g,a) -> repo hint
+    parsed = set() # (g,a,v) POMs already expanded
     queue = list(ROOTS)
-    order = []
     while queue:
         g, a, v, hint = queue.pop(0)
-        if (g, a) in seen:
+        if (g, a) not in max_ver or ver_key(v) > ver_key(max_ver[(g, a)]):
+            max_ver[(g, a)] = v
+            max_hint[(g, a)] = hint
+        if (g, a, v) in parsed:
             continue
+        parsed.add((g, a, v))
         pom, repo = resolve_pom(g, a, v, hint)
         if pom is None:
             print(f"!! POM NOT FOUND: {g}:{a}:{v}")
             continue
-        seen[(g, a)] = (v, repo)
-        order.append((g, a, v, repo))
         deps, parent = parse_deps(pom)
         if parent is not None:
             def t(n):
                 e = parent.find(f"m:{n}", NS)
                 return (e.text or "").strip() if e is not None else ""
             pg, pa, pv = t("groupId"), t("artifactId"), t("version")
-            if pg and pa and pv and not pv.startswith("${") and (pg, pa) not in seen:
+            if pg and pa and pv and not pv.startswith("${"):
                 queue.append((pg, pa, pv, hint))
         for dg, da, dv, typ in deps:
-            if (dg, da) not in seen:
-                queue.append((dg, da, dv, None))
+            queue.append((dg, da, dv, None))
+    # Pass 2: download exactly the resolved (newest) versions.
+    order = []
+    for (g, a) in sorted(max_ver):
+        v, hint = max_ver[(g, a)], max_hint[(g, a)]
+        pom, repo = resolve_pom(g, a, v, hint)
+        if repo is None:
+            print(f"!! REPO NOT FOUND for {g}:{a}:{v}")
+            continue
+        order.append((g, a, v, repo))
     print(f"resolved {len(order)} artifacts")
     manifest = []
     for g, a, v, repo in order:
