@@ -1,0 +1,12 @@
+# Publisher credentials - NEVER commit
+credentials/
+# Build outputs
+app/build/
+app/*.apk
+app/*.idsig
+*.keystore
+*.jks
+# Reproducible via tools/fetch_deps.py
+app/libs/
+# Local notes
+*.log
