@@ -57,8 +57,15 @@ public class TestRunner {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile boolean cancelled;
+    private volatile Runnable pendingInitTimeout;
 
-    public void cancel() { cancelled = true; }
+    public void cancel() {
+        cancelled = true;
+        // If we're stuck waiting for an init callback, finish immediately
+        // instead of waiting for the timeout.
+        Runnable t = pendingInitTimeout;
+        if (t != null) main.post(t);
+    }
 
     private static final int BANNER_HOST_ID = View.generateViewId();
 
@@ -109,6 +116,23 @@ public class TestRunner {
         }
     }
 
+    /** Classify an init failure: if we have internet but the SDK can't
+     * initialize, it's likely the ad blocker. Network-ish errors -> BLOCKED. */
+    private static ProbeStatus classifyInitFailure(String code, String message) {
+        String m = ((code == null ? "" : code + " ") + (message == null ? "" : message))
+                .toLowerCase(java.util.Locale.US);
+        boolean networkish = m.contains("network") || m.contains("connection")
+                || m.contains("connect") || m.contains("timeout") || m.contains("timed out")
+                || m.contains("unreachable") || m.contains("unknownhost")
+                || m.contains("resolve host") || m.contains("dns") || m.contains("socket")
+                || m.contains("internet") || m.contains("offline") || m.contains("ssl")
+                || m.contains("econn") || m.contains("reset by peer");
+        // Init timeout with working internet = SDK servers unreachable = blocked.
+        if ("init_timeout".equals(code) && BaseProbe.internetAvailable) return ProbeStatus.BLOCKED;
+        if (networkish && BaseProbe.internetAvailable) return ProbeStatus.BLOCKED;
+        return ProbeStatus.SDK_INIT_FAILED;
+    }
+
     private void runNext(final Activity activity, final List<NetworkProbe> networks,
                         final Map<String, Boolean> enabled, final Listener listener,
                         final List<ProbeResult> all, final int index) {
@@ -128,13 +152,46 @@ public class TestRunner {
             return;
         }
         main.post(() -> listener.onNetworkStart(network));
+        // Guard against SDKs whose init callback never fires: time out the init.
+        final boolean[] initDone = {false};
+        final Runnable initTimeout = () -> {
+            if (initDone[0]) return;
+            initDone[0] = true;
+            pendingInitTimeout = null;
+            if (cancelled) {
+                main.post(() -> listener.onAllDone(all));
+                return;
+            }
+            for (AdFormat f : network.getFormats()) {
+                ProbeResult r = new ProbeResult(network.getId(), f,
+                        classifyInitFailure("init_timeout",
+                            "SDK initialization did not complete within 30s."),
+                        "init_timeout",
+                        "SDK initialization did not complete within 30s.",
+                        30000, network.getSdkVersion());
+                all.add(r);
+                main.post(() -> listener.onFormatResult(r));
+            }
+            main.post(() -> listener.onNetworkDone(network));
+            runNext(activity, networks, enabled, listener, all, index + 1);
+        };
+        main.postDelayed(initTimeout, 30000);
+        pendingInitTimeout = initTimeout;
+        final long initStart = System.currentTimeMillis();
         network.initialize(activity, (ok, error) -> {
+            if (initDone[0]) return;
+            initDone[0] = true;
+            long initLatency = System.currentTimeMillis() - initStart;
+            DebugLog.logInitResult(network.getId(), ok, error, initLatency);
+            main.removeCallbacks(initTimeout);
+            pendingInitTimeout = null;
             if (cancelled) { main.post(() -> listener.onAllDone(all)); return; }
             if (!ok) {
+                String errMsg = error == null ? "SDK initialization failed." : error;
+                ProbeStatus st = classifyInitFailure("init", errMsg);
                 for (AdFormat f : network.getFormats()) {
                     ProbeResult r = new ProbeResult(network.getId(), f,
-                            ProbeStatus.SDK_INIT_FAILED, "init",
-                            error == null ? "SDK initialization failed." : error,
+                            st, "init", errMsg,
                             0, network.getSdkVersion());
                     all.add(r);
                     main.post(() -> listener.onFormatResult(r));

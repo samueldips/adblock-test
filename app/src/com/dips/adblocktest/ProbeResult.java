@@ -10,6 +10,9 @@ public final class ProbeResult {
     public final long latencyMs;
     public final long timestampMs;
     public final String sdkVersion;
+    /** Action to display the loaded ad (banner dialog or interstitial show).
+     * Transient: only valid for the current session's in-memory results. */
+    public transient Runnable showAdAction;
 
     public ProbeResult(String networkId, AdFormat format, ProbeStatus status,
                        String errorCode, String errorMessage,

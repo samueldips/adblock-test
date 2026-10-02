@@ -41,6 +41,8 @@ public class MainActivity extends Activity {
     private boolean testing;
     private UpdateHelper updateHelper;
     private boolean noInternet = false;
+    // Accumulated results for the currently-running test (survives navigation).
+    private final List<ProbeResult> currentTestResults = new ArrayList<>();
 
     private static class Screen {
         final String id;
@@ -51,6 +53,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        DebugLog.init(this);
+        DebugLog.log("MainActivity.onCreate");
         store = new ResultStore(this);
         for (NetworkProbe n : TestRunner.networks()) enabled.put(n.getId(), store.isEnabled(n.getId()));
         lastResults = store.loadResults();
@@ -112,6 +116,13 @@ public class MainActivity extends Activity {
 
     private void navTo(String id, String arg, boolean push) {
         Screen s = new Screen(id, arg);
+        // Don't push a duplicate of the screen already on top.
+        Screen top = backStack.peek();
+        if (top != null && top.id.equals(id)
+                && (arg == null ? top.arg == null : arg.equals(top.arg))) {
+            render(s, true);
+            return;
+        }
         if (push || backStack.isEmpty()) backStack.push(s);
         else { backStack.pop(); backStack.push(s); }
         render(s, true);
@@ -149,7 +160,7 @@ public class MainActivity extends Activity {
         LinearLayout titles = Ui.vbox(this);
         titles.setPadding(Ui.dp(this, 12), 0, 0, 0);
         titles.addView(Ui.title(this, "AdBlock Test", 20));
-        android.widget.TextView sub = Ui.body(this, "Ad Blocker Check Lab");
+        android.widget.TextView sub = Ui.body(this, "AdBlock Test");
         titles.addView(sub);
         bar.addView(titles);
         return bar;
@@ -206,33 +217,56 @@ public class MainActivity extends Activity {
         int p = Ui.dp(this, 16);
         col.setPadding(p, p, p, p);
 
-        // Status card
-        LinearLayout status = Ui.card(this);
-        LinearLayout head = Ui.hbox(this);
-        head.addView(Ui.title(this, "\uD83D\uDEE1  Shield status", 18));
-        head.addView(spacerH(1));
-        status.addView(head);
-        status.addView(Ui.spacer(this, 8));
+        // Hero verdict card
+        LinearLayout hero = Ui.card(this);
+        hero.setPadding(p, Ui.dp(this, 20), p, Ui.dp(this, 20));
+        LinearLayout heroRow = Ui.hbox(this);
+        // Shield icon
+        android.widget.TextView shield = new android.widget.TextView(this);
+        shield.setText("\uD83D\uDEE1");
+        shield.setTextSize(48);
+        heroRow.addView(shield);
+        LinearLayout heroText = Ui.vbox(this);
+        heroText.setPadding(Ui.dp(this, 16), 0, 0, 0);
+        android.widget.TextView headline;
+        android.widget.TextView subline;
         if (lastResults.isEmpty()) {
-            status.addView(Ui.body(this,
-                    "No test has been run yet. Tap RUN TEST below to check whether your "
-                            + "ad blocker stops test ads from 7 major ad networks."));
+            headline = Ui.title(this, "Ready to test", 24);
+            subline = Ui.body(this, "Run a test to check your ad blocker");
         } else {
-            status.addView(Ui.bodyBright(this, summaryLine()));
-            status.addView(Ui.spacer(this, 4));
-            status.addView(Ui.body(this, "Last run: " + fmtTime(store.getLastRunTimestamp())
-                    + " · Run #" + store.getRunCount()));
+            String verdict = overallVerdict();
+            if (verdict.equals("protected")) {
+                headline = Ui.title(this, "Protected", 24);
+                headline.setTextColor(Ui.OK);
+                subline = Ui.body(this, "Ad blocker is working");
+            } else if (verdict.equals("leaks")) {
+                headline = Ui.title(this, "Leaks detected", 24);
+                headline.setTextColor(Ui.DANGER);
+                subline = Ui.body(this, "Ads are getting through");
+            } else {
+                headline = Ui.title(this, "Mixed results", 24);
+                headline.setTextColor(Ui.WARN);
+                subline = Ui.body(this, "Partially protected");
+            }
         }
-        if (noInternet && !lastResults.isEmpty()) {
-            status.addView(Ui.spacer(this, 8));
-            android.widget.TextView w = Ui.body(this,
-                    "⚠ No internet connectivity was detected during the last run. "
-                            + "Results may reflect that rather than an ad blocker.");
-            w.setTextColor(Ui.WARN);
-            status.addView(w);
-        }
-        col.addView(status);
+        heroText.addView(headline);
+        heroText.addView(subline);
+        heroRow.addView(heroText);
+        hero.addView(heroRow);
+        col.addView(hero);
         col.addView(Ui.spacer(this, 12));
+
+        // Stats row
+        if (!lastResults.isEmpty()) {
+            LinearLayout stats = Ui.hbox(this);
+            stats.addView(statCard("Blocked", String.valueOf(countBlockedNetworks()), Ui.OK));
+            stats.addView(Ui.spacer(this, 8));
+            stats.addView(statCard("Block rate", blockRatePct() + "%", Ui.ACCENT));
+            stats.addView(Ui.spacer(this, 8));
+            stats.addView(statCard("Last test", fmtTimeShort(store.getLastRunTimestamp()), Ui.TEXT_DIM));
+            col.addView(stats);
+            col.addView(Ui.spacer(this, 12));
+        }
 
         // Run button
         Button run = Ui.primaryButton(this, testing ? "TESTING…" : "▶  RUN TEST");
@@ -242,58 +276,108 @@ public class MainActivity extends Activity {
         col.addView(run);
         col.addView(Ui.spacer(this, 12));
 
-        // Toggles card
-        LinearLayout toggles = Ui.card(this);
-        toggles.addView(Ui.title(this, "Networks to test", 16));
-        toggles.addView(Ui.spacer(this, 4));
-        for (NetworkProbe n : TestRunner.networks()) {
-            final NetworkProbe net = n;
-            android.widget.CheckBox cb = Ui.checkBox(this,
-                    n.getName() + "  ·  " + n.getSdkVersion(), enabled.get(n.getId()));
-            cb.setOnCheckedChangeListener((v, checked) -> {
-                enabled.put(net.getId(), checked);
-                store.setEnabled(net.getId(), checked);
-            });
-            toggles.addView(cb);
+        if (noInternet && !lastResults.isEmpty()) {
+            android.widget.TextView w = Ui.body(this,
+                    "⚠ No internet during last run. Results may reflect connectivity, not blocking.");
+            w.setTextColor(Ui.WARN);
+            col.addView(w);
+            col.addView(Ui.spacer(this, 12));
         }
-        col.addView(toggles);
-        col.addView(Ui.spacer(this, 12));
 
-        // Verdicts card
+        // Recent tests
         if (!lastResults.isEmpty()) {
-            LinearLayout verdicts = Ui.card(this);
-            verdicts.addView(Ui.title(this, "Latest verdicts", 16));
-            verdicts.addView(Ui.spacer(this, 8));
+            col.addView(Ui.title(this, "Recent Network Tests", 18));
+            col.addView(Ui.spacer(this, 8));
+            LinearLayout list = Ui.card(this);
             for (NetworkProbe n : TestRunner.networks()) {
-                verdicts.addView(verdictRow(n));
-                verdicts.addView(Ui.spacer(this, 6));
+                list.addView(verdictRow(n));
+                list.addView(Ui.spacer(this, 6));
             }
-            col.addView(verdicts);
+            col.addView(list);
+            col.addView(Ui.spacer(this, 12));
+
+            // Recommended action
+            LinearLayout action = Ui.card(this);
+            action.addView(Ui.title(this, "Recommended Action", 16));
+            action.addView(Ui.spacer(this, 4));
+            action.addView(Ui.body(this, recommendedActionText()));
+            col.addView(action);
+        } else {
+            col.addView(Ui.body(this,
+                    "Tap RUN TEST to check whether your ad blocker stops test ads from 7 major ad networks."));
         }
 
-        ScrollView sv = Ui.scrollWrap(this, col);
-        return sv;
+        return Ui.scrollWrap(this, col);
     }
 
-    private String summaryLine() {
-        int blockedNets = 0, loadedNets = 0, enabledNets = 0;
+    private View statCard(String label, String value, int color) {
+        LinearLayout c = Ui.card(this);
+        c.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        int p = Ui.dp(this, 12);
+        c.setPadding(p, p, p, p);
+        android.widget.TextView v = Ui.title(this, value, 20);
+        v.setTextColor(color);
+        c.addView(v);
+        c.addView(Ui.body(this, label));
+        return c;
+    }
+
+    private String overallVerdict() {
+        int blocked = 0, loaded = 0, total = 0;
         for (NetworkProbe n : TestRunner.networks()) {
             if (!enabled.getOrDefault(n.getId(), true)) continue;
-            enabledNets++;
+            total++;
             String v = TestRunner.verdictFor(n.getId(), grouped);
-            if (v.equals("Blocked") || v.equals("Partially blocked")) blockedNets++;
-            else if (v.equals("Ads loading")) loadedNets++;
+            if (v.equals("Blocked") || v.equals("Partially blocked")) blocked++;
+            else if (v.equals("Ads loading")) loaded++;
         }
-        if (blockedNets == enabledNets && enabledNets > 0) {
-            return "✅ Your ad blocker appears to be working: test ads were blocked on all "
-                    + enabledNets + " enabled networks.";
+        if (total == 0) return "none";
+        if (blocked == total) return "protected";
+        if (loaded == total) return "leaks";
+        return "mixed";
+    }
+
+    private int countBlockedNetworks() {
+        int c = 0;
+        for (NetworkProbe n : TestRunner.networks()) {
+            if (!enabled.getOrDefault(n.getId(), true)) continue;
+            String v = TestRunner.verdictFor(n.getId(), grouped);
+            if (v.equals("Blocked") || v.equals("Partially blocked")) c++;
         }
-        if (blockedNets > 0) {
-            return "⚠ Mixed result: ads blocked on " + blockedNets + " of " + enabledNets
-                    + " networks, loading on " + loadedNets + ".";
+        return c;
+    }
+
+    private int blockRatePct() {
+        int total = 0, blocked = 0;
+        for (ProbeResult r : lastResults) {
+            // count per-network verdicts, not per-format
         }
-        return "❌ Ads loaded on all " + enabledNets
-                + " networks — no ad blocking detected.";
+        for (NetworkProbe n : TestRunner.networks()) {
+            if (!enabled.getOrDefault(n.getId(), true)) continue;
+            total++;
+            String v = TestRunner.verdictFor(n.getId(), grouped);
+            if (v.equals("Blocked") || v.equals("Partially blocked")) blocked++;
+        }
+        return total == 0 ? 0 : (blocked * 100 / total);
+    }
+
+    private String fmtTimeShort(long ts) {
+        if (ts == 0) return "—";
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("MMM d, h:mm a",
+                java.util.Locale.US);
+        return f.format(new java.util.Date(ts));
+    }
+
+    private String recommendedActionText() {
+        String v = overallVerdict();
+        if (v.equals("protected"))
+            return "Your ad blocker is working well. Re-run the test periodically to confirm.";
+        if (v.equals("leaks"))
+            return "Ads are loading. Check that your ad blocker is enabled and updated, then re-run.";
+        if (v.equals("mixed"))
+            return "Some networks are leaking ads. Review the per-network details to see which ones.";
+        return "Run a test to get recommendations.";
     }
 
     private View verdictRow(NetworkProbe n) {
@@ -304,9 +388,11 @@ public class MainActivity extends Activity {
         row.addView(name);
         String verdict = TestRunner.verdictFor(n.getId(), grouped);
         int color = Ui.TEXT_DIM;
-        if (verdict.equals("Blocked")) color = Ui.DANGER;
-        else if (verdict.equals("Ads loading")) color = Ui.OK;
-        else if (verdict.equals("Partially blocked") || verdict.equals("Mixed")) color = Ui.WARN;
+        // Stitch scheme: green = blocked/working, red = ads loaded/leaking, yellow = error
+        if (verdict.equals("Blocked") || verdict.equals("Partially blocked")) color = Ui.OK;
+        else if (verdict.equals("Ads loading")) color = Ui.DANGER;
+        else if (verdict.equals("Mixed")) color = Ui.WARN;
+        else if (verdict.contains("Error") || verdict.contains("fail")) color = Ui.WARN;
         row.addView(Ui.statusPill(this, verdict, color));
         final String id = n.getId();
         row.setOnClickListener(v -> navTo("detail", id, true));
@@ -388,6 +474,12 @@ public class MainActivity extends Activity {
         col.addView(Ui.title(this, testing ? "Test in progress…" : "Test", 20));
         col.addView(Ui.spacer(this, 12));
         progressRows.clear();
+        // Build a lookup of completed results so we can restore state
+        // when the user navigates away and back during a test.
+        Map<String, ProbeResult> done = new LinkedHashMap<>();
+        for (ProbeResult r : currentTestResults) {
+            done.put(r.networkId + "|" + r.format.name(), r);
+        }
         for (NetworkProbe n : TestRunner.networks()) {
             LinearLayout card = Ui.card(this);
             card.addView(Ui.title(this, n.getName(), 16));
@@ -399,6 +491,12 @@ public class MainActivity extends Activity {
                         ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
                 row.addView(lbl);
                 android.widget.TextView st = Ui.body(this, "…");
+                // Restore completed result if available
+                ProbeResult r = done.get(n.getId() + "|" + f.name());
+                if (r != null) {
+                    st.setText(r.summary());
+                    st.setTextColor(r.status.color);
+                }
                 row.addView(st);
                 card.addView(row);
                 progressRows.put(n.getId() + "|" + f.name(), st);
@@ -423,27 +521,34 @@ public class MainActivity extends Activity {
     private void startTest() {
         if (testing) return;
         testing = true;
+        currentTestResults.clear();
+        DebugLog.log("=== Test started ===");
         navTo("progress", null, true);
         runner = new TestRunner();
-        final List<ProbeResult> acc = new ArrayList<>();
         runner.run(this, enabled, new TestRunner.Listener() {
             @Override public void onPreflight(boolean internetAvailable) {
                 noInternet = !internetAvailable;
+                DebugLog.log("[PREFLIGHT] internet=" + internetAvailable);
             }
             @Override public void onNetworkStart(NetworkProbe network) {
+                DebugLog.logInitStart(network.getId());
                 markNetworkRows(network, "initializing…");
             }
             @Override public void onFormatStart(NetworkProbe network, AdFormat format) {
                 setRow(network.getId(), format, "loading…", Ui.TEXT_DIM);
             }
             @Override public void onFormatResult(ProbeResult result) {
-                acc.add(result);
+                currentTestResults.add(result);
+                DebugLog.logLoadResult(result.networkId, result.format.name(),
+                        result.status.name(), result.errorCode, result.errorMessage,
+                        result.latencyMs);
                 setRow(result.networkId, result.format,
                         result.summary(), result.status.color);
             }
             @Override public void onNetworkDone(NetworkProbe network) {}
             @Override public void onAllDone(List<ProbeResult> all) {
                 testing = false;
+                DebugLog.log("=== Test completed: " + all.size() + " results ===");
                 lastResults = new ArrayList<>(all);
                 grouped = TestRunner.groupByNetwork(lastResults);
                 store.saveResults(lastResults);
@@ -643,6 +748,46 @@ public class MainActivity extends Activity {
             statCard.addView(Ui.body(this, "No runs yet."));
         }
         col.addView(statCard);
+        col.addView(Ui.spacer(this, 12));
+
+        if (!lastResults.isEmpty()) {
+            android.widget.Button copyBtn = Ui.ghostButton(this, "Copy last run results");
+            copyBtn.setOnClickListener(v -> {
+                StringBuilder sb = new StringBuilder();
+                sb.append("AdBlock Test results\n");
+                for (ProbeResult r : lastResults) {
+                    sb.append(r.networkId).append(" | ").append(r.format)
+                      .append(" | ").append(r.status)
+                      .append(" | ").append(r.errorCode)
+                      .append(" | ").append(r.errorMessage)
+                      .append(" | ").append(r.latencyMs).append("ms\n");
+                }
+                android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                    "AdBlock Test results", sb.toString()));
+                android.widget.Toast.makeText(this,
+                    "Results copied. Paste them in chat.", android.widget.Toast.LENGTH_LONG).show();
+            });
+            col.addView(copyBtn);
+            col.addView(Ui.spacer(this, 8));
+        }
+
+        android.widget.Button logBtn = Ui.ghostButton(this, "Export debug log path");
+        logBtn.setOnClickListener(v -> {
+            String path = DebugLog.getLogPath();
+            if (path == null) {
+                android.widget.Toast.makeText(this, "No log file yet.",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            android.content.ClipboardManager cm =
+                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("Debug log path", path));
+            android.widget.Toast.makeText(this,
+                "Log path copied: " + path, android.widget.Toast.LENGTH_LONG).show();
+        });
+        col.addView(logBtn);
         col.addView(Ui.spacer(this, 12));
 
         LinearLayout errCard = Ui.card(this);
