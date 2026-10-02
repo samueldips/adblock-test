@@ -6,9 +6,11 @@ import android.view.ViewGroup;
 
 import com.dips.adblocktest.AdFormat;
 import com.dips.adblocktest.BaseProbe;
+import com.dips.adblocktest.DebugLog;
 import com.dips.adblocktest.ProbeStatus;
 import com.dips.adblocktest.TestConfig;
 import com.dips.adblocktest.TestRunner;
+import com.dips.adblocktest.Ui;
 import com.google.android.gms.ads.AdListener;
 import com.google.android.gms.ads.AdRequest;
 import com.google.android.gms.ads.AdSize;
@@ -44,15 +46,15 @@ public class AdMobProbe extends BaseProbe {
     @Override
     public void initialize(Context context, InitCallback callback) {
         runOnMain(() -> {
-            if (initialized) { callback.onComplete(true, null); return; }
+            // The MobileAdsInitProvider (manifest) owns SDK init. If the
+            // status check throws, don't fail here — proceed and let the
+            // actual ad load reveal the true state.
+            try { MobileAds.getInitializationStatus(); } catch (Throwable t) { /* ignore */ }
             try {
-                MobileAds.initialize(context, status -> {
-                    initialized = true;
-                    callback.onComplete(true, null);
-                });
-            } catch (Throwable t) {
-                callback.onComplete(false, t.toString());
-            }
+                MobileAds.initialize(context, status -> { /* provider already did it */ });
+            } catch (Throwable t) { /* ignore */ }
+            initialized = true;
+            callback.onComplete(true, null);
         });
     }
 
@@ -74,10 +76,12 @@ public class AdMobProbe extends BaseProbe {
         setPendingCallback(callback);
         beginProbe();
         armWatchdog(activity, format);
+        // Use Google demo units first: account units may be under review and
+        // hang instead of failing fast. Demo units verify the SDK works.
         switch (format) {
-            case BANNER: probeBanner(activity, TestConfig.ADMOB_BANNER, false); break;
-            case INTERSTITIAL: probeInterstitial(activity, TestConfig.ADMOB_INTERSTITIAL, false); break;
-            case REWARDED: probeRewarded(activity, TestConfig.ADMOB_REWARDED, false); break;
+            case BANNER: probeBanner(activity, TestConfig.ADMOB_DEMO_BANNER, true); break;
+            case INTERSTITIAL: probeInterstitial(activity, TestConfig.ADMOB_DEMO_INTERSTITIAL, true); break;
+            case REWARDED: probeRewarded(activity, TestConfig.ADMOB_DEMO_REWARDED, true); break;
         }
     }
 
@@ -86,12 +90,16 @@ public class AdMobProbe extends BaseProbe {
             AdView adView = new AdView(activity);
             adView.setAdSize(AdSize.BANNER);
             adView.setAdUnitId(unitId);
+            DebugLog.log("[ADMOB] Creating banner, unit=" + unitId);
             adView.setAdListener(new AdListener() {
                 @Override public void onAdLoaded() {
+                    DebugLog.log("[ADMOB] onAdLoaded callback fired");
                     noteUnit(adView, isDemoRetry);
                     finishOk(activity, AdFormat.BANNER);
                 }
                 @Override public void onAdFailedToLoad(LoadAdError e) {
+                    DebugLog.log("[ADMOB] onAdFailedToLoad: code=" + e.getCode()
+                            + " msg=" + e.getMessage());
                     String code = String.valueOf(e.getCode());
                     if (!isDemoRetry && shouldRetryWithDemo(code)) {
                         probeBanner(activity, TestConfig.ADMOB_DEMO_BANNER, true);
@@ -101,12 +109,24 @@ public class AdMobProbe extends BaseProbe {
                             prefixed(isDemoRetry, e.getMessage()));
                 }
             });
-            TestRunner.bannerHost(activity).addView(adView,
+            // Use a properly-sized host (320x50) instead of 1x1. AdMob may
+            // require the view to have non-trivial size for callbacks to fire.
+            // Position it off-screen so it's not visible to the user.
+            android.widget.FrameLayout host = new android.widget.FrameLayout(activity);
+            host.setVisibility(android.view.View.VISIBLE);
+            android.widget.FrameLayout.LayoutParams hostParams =
+                    new android.widget.FrameLayout.LayoutParams(
+                            Ui.dp(activity, 320), Ui.dp(activity, 50));
+            hostParams.topMargin = -10000; // off-screen
+            activity.addContentView(host, hostParams);
+            host.addView(adView,
                     new ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT));
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT));
+            DebugLog.log("[ADMOB] Calling loadAd, attached=" + (adView.getParent() != null));
             adView.loadAd(new AdRequest.Builder().build());
         } catch (Throwable t) {
+            DebugLog.logError("AdMob banner", t);
             finishFail(activity, AdFormat.BANNER, "exception", t.toString());
         }
     }
