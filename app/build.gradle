@@ -6,6 +6,14 @@ android {
     namespace = "com.dips.adblocktest"
     compileSdk = 36
 
+    sourceSets {
+        getByName("main") {
+            manifest.srcFile("AndroidManifest.xml")
+            java.srcDirs("src")
+            res.srcDirs("res")
+        }
+    }
+
     defaultConfig {
         applicationId = "com.dips.adblocktest"
         minSdk = 24
