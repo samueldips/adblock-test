@@ -1,0 +1,4 @@
+// Top-level build file for AdBlock Test: Ad Blocker Check
+plugins {
+    id("com.android.application") version "8.7.3" apply false
+}

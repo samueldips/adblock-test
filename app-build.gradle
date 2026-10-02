@@ -1,0 +1,49 @@
+plugins {
+    id("com.android.application")
+}
+
+android {
+    namespace = "com.dips.adblocktest"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "com.dips.adblocktest"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 14
+        versionName = "1.0"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+        }
+        debug {
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    // ---- Ad networks (all test mode / test placements) ----
+    implementation("com.google.android.gms:play-services-ads:25.5.0")
+    implementation("com.unity3d.ads:unity-ads:4.21.0")
+    implementation("com.ironsource.sdk:mediationsdk:9.2.0")
+    implementation("com.inmobi.monetization:inmobi-ads:10.1.4")
+    implementation("com.chartboost:chartboost-sdk:9.2.1")
+    implementation("com.startapp:inapp-sdk:5.3.2")
+    implementation("com.vungle:vungle-ads:7.7.9")
+
+    // ---- AndroidX ----
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.core:core:1.10.1")
+    implementation("androidx.activity:activity:1.7.1")
+    implementation("androidx.browser:browser:1.8.0")
+
+    // ---- Play In-App Updates & Review ----
+    implementation("com.google.android.play:app-update:2.1.0")
+    implementation("com.google.android.play:review:2.0.2")
+}
