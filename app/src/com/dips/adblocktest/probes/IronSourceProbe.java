@@ -10,6 +10,9 @@ import com.dips.adblocktest.NetworkProbe;
 import com.dips.adblocktest.ProbeStatus;
 import com.dips.adblocktest.TestConfig;
 import com.dips.adblocktest.TestRunner;
+import com.dips.adblocktest.Ui;
+import com.ironsource.mediationsdk.IronSource;
+import com.ironsource.mediationsdk.utils.IronSourceUtils;
 import com.unity3d.mediation.LevelPlay;
 import com.unity3d.mediation.LevelPlayAdError;
 import com.unity3d.mediation.LevelPlayAdInfo;
@@ -38,8 +41,8 @@ public class IronSourceProbe extends BaseProbe {
         return Arrays.asList(AdFormat.BANNER, AdFormat.INTERSTITIAL, AdFormat.REWARDED);
     }
     @Override public String getSdkVersion() {
-        try { return "LevelPlay " + LevelPlay.getSdkVersion(); }
-        catch (Throwable t) { return "mediationsdk 9.2.0"; }
+        try { return "LevelPlay " + IronSourceUtils.getSDKVersion(); }
+        catch (Throwable t) { return "mediationsdk 8.6.0"; }
     }
     @Override public String getMethodology() {
         return "Initializes LevelPlay with the app key, then loads one ad per format. "
@@ -48,7 +51,7 @@ public class IronSourceProbe extends BaseProbe {
     }
 
     @Override
-    public void initialize(Context context, NetworkProbe.InitCallback callback) {
+    public void initialize(Context context, InitCallback callback) {
         runOnMain(() -> {
             if (initialized) { callback.onComplete(true, null); return; }
             try {
@@ -71,7 +74,6 @@ public class IronSourceProbe extends BaseProbe {
 
     @Override
     protected ProbeStatus mapFailure(String code, String message) {
-        // Classic IronSourceError codes wrapped by LevelPlayAdError.
         if ("509".equals(code) || "606".equals(code)) return ProbeStatus.NO_FILL;
         if ("520".equals(code)) return ProbeStatus.BLOCKED;
         if ("508".equals(code)) return ProbeStatus.SDK_INIT_FAILED;
@@ -80,9 +82,7 @@ public class IronSourceProbe extends BaseProbe {
 
     @Override
     public void probeFormat(Activity activity, AdFormat format, ProbeCallback callback) {
-        setPendingCallback(callback);
-        beginProbe();
-        armWatchdog(activity, format);
+        long token = armProbe(activity, format, callback);
         try {
             switch (format) {
                 case INTERSTITIAL: {
@@ -90,10 +90,10 @@ public class IronSourceProbe extends BaseProbe {
                             new LevelPlayInterstitialAd(TestConfig.IRONSOURCE_INTERSTITIAL);
                     ad.setListener(new LevelPlayInterstitialAdListener() {
                         @Override public void onAdLoaded(LevelPlayAdInfo info) {
-                            finishOk(activity, format);
+                            finishOk(token, activity, format, () -> ad.showAd(activity));
                         }
                         @Override public void onAdLoadFailed(LevelPlayAdError error) {
-                            fail(activity, format, error);
+                            fail(token, activity, format, error);
                         }
                         @Override public void onAdDisplayed(LevelPlayAdInfo info) {}
                     });
@@ -105,10 +105,10 @@ public class IronSourceProbe extends BaseProbe {
                             new LevelPlayRewardedAd(TestConfig.IRONSOURCE_REWARDED);
                     ad.setListener(new LevelPlayRewardedAdListener() {
                         @Override public void onAdLoaded(LevelPlayAdInfo info) {
-                            finishOk(activity, format);
+                            finishOk(token, activity, format, () -> ad.showAd(activity));
                         }
                         @Override public void onAdLoadFailed(LevelPlayAdError error) {
-                            fail(activity, format, error);
+                            fail(token, activity, format, error);
                         }
                         @Override public void onAdDisplayed(LevelPlayAdInfo info) {}
                         @Override public void onAdRewarded(LevelPlayReward reward,
@@ -122,27 +122,27 @@ public class IronSourceProbe extends BaseProbe {
                             new LevelPlayBannerAdView(activity, TestConfig.IRONSOURCE_BANNER);
                     banner.setBannerListener(new LevelPlayBannerAdViewListener() {
                         @Override public void onAdLoaded(LevelPlayAdInfo info) {
-                            finishOk(activity, format);
+                            finishOk(token, activity, format, () -> Ui.showBannerDialog(activity, "ironSource Banner", banner));
                         }
                         @Override public void onAdLoadFailed(LevelPlayAdError error) {
-                            fail(activity, format, error);
+                            fail(token, activity, format, error);
                         }
                     });
                     TestRunner.bannerHost(activity).addView(banner,
                             new ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                                    ViewGroup.LayoutParams.WRAP_CONTENT));
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT));
                     banner.loadAd();
                     break;
                 }
             }
         } catch (Throwable t) {
-            finishFail(activity, format, "exception", t.toString());
+            finishFail(token, activity, format, "exception", t.toString());
         }
     }
 
-    private void fail(Activity activity, AdFormat format, LevelPlayAdError error) {
-        finishFail(activity, format,
+    private void fail(long token, Activity activity, AdFormat format, LevelPlayAdError error) {
+        finishFail(token, activity, format,
                 String.valueOf(error.getErrorCode()), error.getErrorMessage());
     }
 }

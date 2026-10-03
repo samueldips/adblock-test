@@ -4,12 +4,13 @@ import android.app.Activity;
 import android.content.Context;
 import android.view.ViewGroup;
 
+import com.chartboost.sdk.Mediation;
 import com.dips.adblocktest.AdFormat;
 import com.dips.adblocktest.BaseProbe;
-import com.dips.adblocktest.NetworkProbe;
 import com.dips.adblocktest.ProbeStatus;
 import com.dips.adblocktest.TestConfig;
 import com.dips.adblocktest.TestRunner;
+import com.dips.adblocktest.Ui;
 import com.chartboost.sdk.Chartboost;
 import com.chartboost.sdk.ads.Banner;
 import com.chartboost.sdk.ads.Interstitial;
@@ -32,7 +33,7 @@ import com.chartboost.sdk.events.StartError;
 import java.util.Arrays;
 import java.util.List;
 
-/** Chartboost probe (dashboard test mode is ON for this app). */
+/** Chartboost probe. */
 public class ChartboostProbe extends BaseProbe {
     private boolean initialized;
 
@@ -53,7 +54,7 @@ public class ChartboostProbe extends BaseProbe {
     }
 
     @Override
-    public void initialize(Context context, NetworkProbe.InitCallback callback) {
+    public void initialize(Context context, InitCallback callback) {
         runOnMain(() -> {
             if (initialized) { callback.onComplete(true, null); return; }
             try {
@@ -86,62 +87,65 @@ public class ChartboostProbe extends BaseProbe {
 
     @Override
     public void probeFormat(Activity activity, AdFormat format, ProbeCallback callback) {
-        setPendingCallback(callback);
-        beginProbe();
-        armWatchdog(activity, format);
+        long token = armProbe(activity, format, callback);
         try {
             switch (format) {
                 case INTERSTITIAL: {
-                    Interstitial interstitial = new Interstitial(
-                            TestConfig.CHARTBOOST_LOCATION, interstitialCallback(activity, format),
+                    final Interstitial[] ref = new Interstitial[1];
+                    ref[0] = new Interstitial(
+                            TestConfig.CHARTBOOST_LOCATION, interstitialCallback(token, activity, format, ref),
                             directMediation());
-                    interstitial.cache();
+                    ref[0].cache();
                     break;
                 }
                 case REWARDED: {
-                    Rewarded rewarded = new Rewarded(
-                            TestConfig.CHARTBOOST_LOCATION, rewardedCallback(activity, format),
+                    final Rewarded[] ref = new Rewarded[1];
+                    ref[0] = new Rewarded(
+                            TestConfig.CHARTBOOST_LOCATION, rewardedCallback(token, activity, format, ref),
                             directMediation());
-                    rewarded.cache();
+                    ref[0].cache();
                     break;
                 }
                 case BANNER: {
-                    Banner banner = new Banner(activity, TestConfig.CHARTBOOST_LOCATION,
-                            Banner.BannerSize.STANDARD, bannerCallback(activity, format),
+                    final Banner[] ref = new Banner[1];
+                    ref[0] = new Banner(activity, TestConfig.CHARTBOOST_LOCATION,
+                            Banner.BannerSize.STANDARD, bannerCallback(token, activity, format, ref),
                             directMediation());
-                    TestRunner.bannerHost(activity).addView(banner,
+                    TestRunner.bannerHost(activity).addView(ref[0],
                             new ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                                    ViewGroup.LayoutParams.WRAP_CONTENT));
-                    banner.cache();
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT));
+                    ref[0].cache();
                     break;
                 }
             }
         } catch (Throwable t) {
-            finishFail(activity, format, "exception", t.toString());
+            finishFail(token, activity, format, "exception", t.toString());
         }
     }
 
-    private com.chartboost.sdk.Mediation directMediation() {
+    private Mediation directMediation() {
         String v;
         try { v = Chartboost.getSDKVersion(); } catch (Throwable t) { v = "9.2.1"; }
-        return new com.chartboost.sdk.Mediation("direct", v, v);
+        return new Mediation("direct", v, v);
     }
 
-    private void onCache(Activity activity, AdFormat format, CacheEvent event, CacheError error) {
+    private void onCache(long token, Activity activity, AdFormat format, CacheEvent event, CacheError error, Runnable showAdAction) {
         if (error == null) {
-            finishOk(activity, format);
+            finishOk(token, activity, format, showAdAction);
         } else {
             String code = error.getCode() == null ? "unknown" : error.getCode().name();
             String msg = error.getException() == null ? code : error.getException().toString();
-            finishFail(activity, format, code, msg);
+            finishFail(token, activity, format, code, msg);
         }
     }
 
-    private InterstitialCallback interstitialCallback(Activity activity, AdFormat format) {
+    private InterstitialCallback interstitialCallback(long token, Activity activity, AdFormat format, Interstitial[] ref) {
         return new InterstitialCallback() {
             @Override public void onAdLoaded(CacheEvent e, CacheError err) {
-                onCache(activity, format, e, err);
+                onCache(token, activity, format, e, err, () -> {
+                    if (ref[0] != null && ref[0].isCached()) ref[0].show();
+                });
             }
             @Override public void onAdRequestedToShow(ShowEvent e) {}
             @Override public void onAdShown(ShowEvent e, ShowError err) {}
@@ -151,11 +155,13 @@ public class ChartboostProbe extends BaseProbe {
         };
     }
 
-    private RewardedCallback rewardedCallback(Activity activity, AdFormat format) {
+    private RewardedCallback rewardedCallback(long token, Activity activity, AdFormat format, Rewarded[] ref) {
         return new RewardedCallback() {
             @Override public void onRewardEarned(RewardEvent e) {}
             @Override public void onAdLoaded(CacheEvent e, CacheError err) {
-                onCache(activity, format, e, err);
+                onCache(token, activity, format, e, err, () -> {
+                    if (ref[0] != null && ref[0].isCached()) ref[0].show();
+                });
             }
             @Override public void onAdRequestedToShow(ShowEvent e) {}
             @Override public void onAdShown(ShowEvent e, ShowError err) {}
@@ -165,10 +171,15 @@ public class ChartboostProbe extends BaseProbe {
         };
     }
 
-    private BannerCallback bannerCallback(Activity activity, AdFormat format) {
+    private BannerCallback bannerCallback(long token, Activity activity, AdFormat format, Banner[] ref) {
         return new BannerCallback() {
             @Override public void onAdLoaded(CacheEvent e, CacheError err) {
-                onCache(activity, format, e, err);
+                onCache(token, activity, format, e, err, () -> {
+                    if (ref[0] != null) {
+                        try { ref[0].show(); } catch (Throwable ignored) {}
+                        Ui.showBannerDialog(activity, "Chartboost Banner", ref[0]);
+                    }
+                });
             }
             @Override public void onAdRequestedToShow(ShowEvent e) {}
             @Override public void onAdShown(ShowEvent e, ShowError err) {}

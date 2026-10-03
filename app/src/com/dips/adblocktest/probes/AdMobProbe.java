@@ -3,6 +3,7 @@ package com.dips.adblocktest.probes;
 import android.app.Activity;
 import android.content.Context;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 
 import com.dips.adblocktest.AdFormat;
 import com.dips.adblocktest.BaseProbe;
@@ -27,14 +28,13 @@ import java.util.List;
 
 /** Google AdMob probe. Probes account units first, falls back to Google demo units. */
 public class AdMobProbe extends BaseProbe {
-    private boolean initialized;
 
     @Override public String getId() { return "admob"; }
     @Override public String getName() { return "AdMob"; }
     @Override public List<AdFormat> getFormats() {
         return Arrays.asList(AdFormat.BANNER, AdFormat.INTERSTITIAL, AdFormat.REWARDED);
     }
-    @Override public String getSdkVersion() { return "play-services-ads 25.5.0"; }
+    @Override public String getSdkVersion() { return "play-services-ads 23.6.0"; }
     @Override public String getMethodology() {
         return "Initializes the Google Mobile Ads SDK, then loads one ad per format. "
                 + "Account ad units are tried first; if they fail with a configuration-type "
@@ -46,14 +46,10 @@ public class AdMobProbe extends BaseProbe {
     @Override
     public void initialize(Context context, InitCallback callback) {
         runOnMain(() -> {
-            // The MobileAdsInitProvider (manifest) owns SDK init. If the
-            // status check throws, don't fail here — proceed and let the
-            // actual ad load reveal the true state.
             try { MobileAds.getInitializationStatus(); } catch (Throwable t) { /* ignore */ }
             try {
-                MobileAds.initialize(context, status -> { /* provider already did it */ });
+                MobileAds.initialize(context, status -> { });
             } catch (Throwable t) { /* ignore */ }
-            initialized = true;
             callback.onComplete(true, null);
         });
     }
@@ -65,27 +61,27 @@ public class AdMobProbe extends BaseProbe {
         return null;
     }
 
-    /** True when the error suggests trying the demo unit is worthwhile. */
     private boolean shouldRetryWithDemo(String code) {
-        // 0=INTERNAL_ERROR, 1=INVALID_REQUEST: config/review problems, not network.
         return "0".equals(code) || "1".equals(code);
     }
 
     @Override
     public void probeFormat(Activity activity, AdFormat format, ProbeCallback callback) {
-        setPendingCallback(callback);
-        beginProbe();
-        armWatchdog(activity, format);
-        // Use Google demo units first: account units may be under review and
-        // hang instead of failing fast. Demo units verify the SDK works.
+        long token = armProbe(activity, format, callback);
         switch (format) {
-            case BANNER: probeBanner(activity, TestConfig.ADMOB_DEMO_BANNER, true); break;
-            case INTERSTITIAL: probeInterstitial(activity, TestConfig.ADMOB_DEMO_INTERSTITIAL, true); break;
-            case REWARDED: probeRewarded(activity, TestConfig.ADMOB_DEMO_REWARDED, true); break;
+            case BANNER:
+                probeBanner(activity, token, TestConfig.ADMOB_BANNER, false);
+                break;
+            case INTERSTITIAL:
+                probeInterstitial(activity, token, TestConfig.ADMOB_INTERSTITIAL, false);
+                break;
+            case REWARDED:
+                probeRewarded(activity, token, TestConfig.ADMOB_REWARDED, false);
+                break;
         }
     }
 
-    private void probeBanner(Activity activity, String unitId, boolean isDemoRetry) {
+    private void probeBanner(Activity activity, long token, String unitId, boolean isDemoRetry) {
         try {
             AdView adView = new AdView(activity);
             adView.setAdSize(AdSize.BANNER);
@@ -94,89 +90,74 @@ public class AdMobProbe extends BaseProbe {
             adView.setAdListener(new AdListener() {
                 @Override public void onAdLoaded() {
                     DebugLog.log("[ADMOB] onAdLoaded callback fired");
-                    noteUnit(adView, isDemoRetry);
-                    finishOk(activity, AdFormat.BANNER);
+                    finishOk(token, activity, AdFormat.BANNER, () -> Ui.showBannerDialog(activity, "AdMob Banner", adView));
                 }
                 @Override public void onAdFailedToLoad(LoadAdError e) {
                     DebugLog.log("[ADMOB] onAdFailedToLoad: code=" + e.getCode()
                             + " msg=" + e.getMessage());
                     String code = String.valueOf(e.getCode());
                     if (!isDemoRetry && shouldRetryWithDemo(code)) {
-                        probeBanner(activity, TestConfig.ADMOB_DEMO_BANNER, true);
+                        probeBanner(activity, token, TestConfig.ADMOB_DEMO_BANNER, true);
                         return;
                     }
-                    finishFail(activity, AdFormat.BANNER, code,
+                    finishFail(token, activity, AdFormat.BANNER, code,
                             prefixed(isDemoRetry, e.getMessage()));
                 }
             });
-            // Use a properly-sized host (320x50) instead of 1x1. AdMob may
-            // require the view to have non-trivial size for callbacks to fire.
-            // Position it off-screen so it's not visible to the user.
-            android.widget.FrameLayout host = new android.widget.FrameLayout(activity);
-            host.setVisibility(android.view.View.VISIBLE);
-            android.widget.FrameLayout.LayoutParams hostParams =
-                    new android.widget.FrameLayout.LayoutParams(
-                            Ui.dp(activity, 320), Ui.dp(activity, 50));
-            hostParams.topMargin = -10000; // off-screen
-            activity.addContentView(host, hostParams);
+
+            FrameLayout host = TestRunner.bannerHost(activity);
             host.addView(adView,
                     new ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT));
-            DebugLog.log("[ADMOB] Calling loadAd, attached=" + (adView.getParent() != null));
             adView.loadAd(new AdRequest.Builder().build());
         } catch (Throwable t) {
             DebugLog.logError("AdMob banner", t);
-            finishFail(activity, AdFormat.BANNER, "exception", t.toString());
+            finishFail(token, activity, AdFormat.BANNER, "exception", t.toString());
         }
     }
 
-    private void noteUnit(AdView v, boolean isDemoRetry) {
-        // keep reference to avoid GC before load completes
-        v.setTag(isDemoRetry ? "demo" : "account");
-    }
-
-    private void probeInterstitial(Activity activity, String unitId, boolean isDemoRetry) {
+    private void probeInterstitial(Activity activity, long token, String unitId, boolean isDemoRetry) {
         try {
             InterstitialAd.load(activity, unitId, new AdRequest.Builder().build(),
                     new InterstitialAdLoadCallback() {
                         @Override public void onAdLoaded(InterstitialAd ad) {
-                            finishOk(activity, AdFormat.INTERSTITIAL);
+                            finishOk(token, activity, AdFormat.INTERSTITIAL, () -> ad.show(activity));
                         }
                         @Override public void onAdFailedToLoad(LoadAdError e) {
                             String code = String.valueOf(e.getCode());
                             if (!isDemoRetry && shouldRetryWithDemo(code)) {
-                                probeInterstitial(activity, TestConfig.ADMOB_DEMO_INTERSTITIAL, true);
+                                probeInterstitial(activity, token, TestConfig.ADMOB_DEMO_INTERSTITIAL, true);
                                 return;
                             }
-                            finishFail(activity, AdFormat.INTERSTITIAL, code,
+                            finishFail(token, activity, AdFormat.INTERSTITIAL, code,
                                     prefixed(isDemoRetry, e.getMessage()));
                         }
                     });
         } catch (Throwable t) {
-            finishFail(activity, AdFormat.INTERSTITIAL, "exception", t.toString());
+            finishFail(token, activity, AdFormat.INTERSTITIAL, "exception", t.toString());
         }
     }
 
-    private void probeRewarded(Activity activity, String unitId, boolean isDemoRetry) {
+    private void probeRewarded(Activity activity, long token, String unitId, boolean isDemoRetry) {
         try {
             RewardedAd.load(activity, unitId, new AdRequest.Builder().build(),
                     new RewardedAdLoadCallback() {
                         @Override public void onAdLoaded(RewardedAd ad) {
-                            finishOk(activity, AdFormat.REWARDED);
+                            finishOk(token, activity, AdFormat.REWARDED, () -> ad.show(activity, rewardItem -> {}));
                         }
                         @Override public void onAdFailedToLoad(LoadAdError e) {
                             String code = String.valueOf(e.getCode());
                             if (!isDemoRetry && shouldRetryWithDemo(code)) {
-                                probeRewarded(activity, TestConfig.ADMOB_DEMO_REWARDED, true);
+                                probeRewarded(activity, token, TestConfig.ADMOB_DEMO_REWARDED, true);
                                 return;
                             }
-                            finishFail(activity, AdFormat.REWARDED, code,
+                            finishFail(token, activity, AdFormat.REWARDED, code,
                                     prefixed(isDemoRetry, e.getMessage()));
                         }
                     });
         } catch (Throwable t) {
-            finishFail(activity, AdFormat.REWARDED, "exception", t.toString());
+            finishFail(token, activity, AdFormat.REWARDED, "exception", t.toString());
         }
     }
 

@@ -7,10 +7,10 @@ import android.view.ViewGroup;
 
 import com.dips.adblocktest.AdFormat;
 import com.dips.adblocktest.BaseProbe;
-import com.dips.adblocktest.NetworkProbe;
 import com.dips.adblocktest.ProbeStatus;
 import com.dips.adblocktest.TestConfig;
 import com.dips.adblocktest.TestRunner;
+import com.dips.adblocktest.Ui;
 import com.startapp.sdk.ads.banner.Banner;
 import com.startapp.sdk.ads.banner.BannerListener;
 import com.startapp.sdk.adsbase.Ad;
@@ -22,9 +22,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Start.io probe. The SDK reports no error codes on load failure, so any
- * failure in test mode is classified as BLOCKED when the device has internet
- * (test ads should always fill) — documented in the methodology.
+ * Start.io probe.
  */
 public class StartIoProbe extends BaseProbe {
     private boolean initialized;
@@ -36,7 +34,7 @@ public class StartIoProbe extends BaseProbe {
     }
     @Override public String getSdkVersion() {
         try { return "inapp-sdk " + StartAppSDK.getVersion(); }
-        catch (Throwable t) { return "inapp-sdk 5.3.2"; }
+        catch (Throwable t) { return "inapp-sdk 5.1.0"; }
     }
     @Override public String getMethodology() {
         return "Initializes StartAppSDK with the app ID and enables SDK test ads "
@@ -46,7 +44,7 @@ public class StartIoProbe extends BaseProbe {
     }
 
     @Override
-    public void initialize(Context context, NetworkProbe.InitCallback callback) {
+    public void initialize(Context context, InitCallback callback) {
         runOnMain(() -> {
             if (initialized) { callback.onComplete(true, null); return; }
             try {
@@ -62,35 +60,32 @@ public class StartIoProbe extends BaseProbe {
 
     @Override
     protected ProbeStatus mapFailure(String code, String message) {
-        // No error codes from this SDK; test-mode ads should always fill, so a
-        // failure with working internet means the request never completed.
         return ProbeStatus.BLOCKED;
     }
 
     @Override
     public void probeFormat(Activity activity, AdFormat format, ProbeCallback callback) {
-        setPendingCallback(callback);
-        beginProbe();
-        armWatchdog(activity, format);
+        long token = armProbe(activity, format, callback);
         try {
             switch (format) {
                 case INTERSTITIAL: {
                     StartAppAd ad = new StartAppAd(activity);
-                    ad.loadAd(StartAppAd.AdMode.FULLPAGE, listener(activity, format));
+                    ad.loadAd(StartAppAd.AdMode.FULLPAGE, listener(token, activity, format, ad));
                     break;
                 }
                 case REWARDED: {
                     StartAppAd ad = new StartAppAd(activity);
-                    ad.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, listener(activity, format));
+                    ad.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, listener(token, activity, format, ad));
                     break;
                 }
                 case BANNER: {
-                    Banner banner = new Banner(activity, new BannerListener() {
+                    final Banner[] bannerRef = new Banner[1];
+                    bannerRef[0] = new Banner(activity, new BannerListener() {
                         @Override public void onReceiveAd(View view) {
-                            finishOk(activity, format);
+                            finishOk(token, activity, format, () -> Ui.showBannerDialog(activity, "Start.io Banner", bannerRef[0]));
                         }
                         @Override public void onFailedToReceiveAd(View view) {
-                            finishFail(activity, format, "no-error-code",
+                            finishFail(token, activity, format, "no-error-code",
                                     "Start.io reported failure without an error code. "
                                             + "Test ads should always fill, so this is "
                                             + "classified as blocked.");
@@ -98,26 +93,27 @@ public class StartIoProbe extends BaseProbe {
                         @Override public void onImpression(View view) {}
                         @Override public void onClick(View view) {}
                     });
-                    TestRunner.bannerHost(activity).addView(banner,
+                    TestRunner.bannerHost(activity).addView(bannerRef[0],
                             new ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                                    ViewGroup.LayoutParams.WRAP_CONTENT));
-                    // Banner auto-loads on attach.
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT));
                     break;
                 }
             }
         } catch (Throwable t) {
-            finishFail(activity, format, "exception", t.toString());
+            finishFail(token, activity, format, "exception", t.toString());
         }
     }
 
-    private AdEventListener listener(Activity activity, AdFormat format) {
+    private AdEventListener listener(long token, Activity activity, AdFormat format, StartAppAd ad) {
         return new AdEventListener() {
-            @Override public void onReceiveAd(Ad ad) {
-                finishOk(activity, format);
+            @Override public void onReceiveAd(Ad adObj) {
+                finishOk(token, activity, format, () -> {
+                    if (ad != null) ad.showAd();
+                });
             }
-            @Override public void onFailedToReceiveAd(Ad ad) {
-                finishFail(activity, format, "no-error-code",
+            @Override public void onFailedToReceiveAd(Ad adObj) {
+                finishFail(token, activity, format, "no-error-code",
                         "Start.io reported failure without an error code. "
                                 + "Test ads should always fill, so this is classified as blocked.");
             }

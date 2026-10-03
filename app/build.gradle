@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace = "com.dips.adblocktest"
-    compileSdk = 36
+    compileSdk = 35
 
     sourceSets {
         getByName("main") {
@@ -17,14 +17,18 @@ android {
     defaultConfig {
         applicationId = "com.dips.adblocktest"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 14
         versionName = "1.0"
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            minifyEnabled false
         }
         debug {
         }
@@ -37,13 +41,13 @@ android {
 
 dependencies {
     // ---- Ad networks (all test mode / test placements) ----
-    implementation("com.google.android.gms:play-services-ads:25.5.0")
-    implementation("com.unity3d.ads:unity-ads:4.21.0")
-    implementation("com.ironsource.sdk:mediationsdk:9.2.0")
+    implementation("com.google.android.gms:play-services-ads:23.6.0")
+    implementation("com.unity3d.ads:unity-ads:4.12.5")
+    implementation("com.ironsource.sdk:mediationsdk:8.6.0")
     implementation("com.inmobi.monetization:inmobi-ads:10.1.4")
     implementation("com.chartboost:chartboost-sdk:9.2.1")
-    implementation("com.startapp:inapp-sdk:5.3.2")
-    implementation("com.vungle:vungle-ads:7.7.9")
+    implementation("com.startapp:inapp-sdk:5.1.0")
+    implementation("com.vungle:vungle-ads:7.4.1")
 
     // ---- AndroidX ----
     implementation("androidx.appcompat:appcompat:1.7.0")

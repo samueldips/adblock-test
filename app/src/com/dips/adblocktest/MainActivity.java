@@ -2,16 +2,29 @@ package com.dips.adblocktest;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
+import android.content.res.Configuration;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
@@ -26,7 +39,7 @@ import java.util.Map;
 /**
  * Single-activity app hosting all screens: Dashboard, Networks, Test progress,
  * Network detail, Settings (+ Privacy policy, Methodology, Diagnostics, About).
- * Dark Material-3-inspired theme, shield motif, built programmatically.
+ * Design A — Security Command Center (SOC) theme.
  */
 public class MainActivity extends Activity {
     private FrameLayout content;
@@ -41,7 +54,6 @@ public class MainActivity extends Activity {
     private boolean testing;
     private UpdateHelper updateHelper;
     private boolean noInternet = false;
-    // Accumulated results for the currently-running test (survives navigation).
     private final List<ProbeResult> currentTestResults = new ArrayList<>();
 
     private static class Screen {
@@ -61,11 +73,12 @@ public class MainActivity extends Activity {
         grouped = TestRunner.groupByNetwork(lastResults);
         updateHelper = new UpdateHelper(this);
 
-        getWindow().setStatusBarColor(Ui.BG);
-        getWindow().setNavigationBarColor(Ui.BG);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().setStatusBarColor(Ui.SOC_BG);
+        getWindow().setNavigationBarColor(Ui.SOC_BG);
 
         LinearLayout root = Ui.vbox(this);
-        root.setBackgroundColor(Ui.BG);
+        root.setBackgroundColor(Ui.SOC_BG);
 
         root.addView(appBar());
 
@@ -78,6 +91,7 @@ public class MainActivity extends Activity {
         root.addView(bottomNav);
 
         setContentView(root);
+        hideSystemUI();
         navTo("dashboard", null, false);
         updateHelper.checkForUpdate();
     }
@@ -85,7 +99,34 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        hideSystemUI();
         updateHelper.checkForUpdate();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            hideSystemUI();
+        }
+    }
+
+    private void hideSystemUI() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
     }
 
     @Override
@@ -116,7 +157,6 @@ public class MainActivity extends Activity {
 
     private void navTo(String id, String arg, boolean push) {
         Screen s = new Screen(id, arg);
-        // Don't push a duplicate of the screen already on top.
         Screen top = backStack.peek();
         if (top != null && top.id.equals(id)
                 && (arg == null ? top.arg == null : arg.equals(top.arg))) {
@@ -150,17 +190,19 @@ public class MainActivity extends Activity {
 
     private View appBar() {
         LinearLayout bar = Ui.hbox(this);
-        bar.setBackgroundColor(Ui.SURFACE);
-        int p = Ui.dp(this, 16);
-        bar.setPadding(p, Ui.dp(this, 12), p, Ui.dp(this, 12));
-        android.widget.TextView shield = new android.widget.TextView(this);
-        shield.setText("\uD83D\uDEE1"); // shield emoji
-        shield.setTextSize(28);
+        bar.setBackgroundColor(Ui.SOC_SURFACE);
+        int p = Ui.dp(this, 12);
+        bar.setPadding(p, Ui.dp(this, 10), p, Ui.dp(this, 10));
+        TextView shield = new TextView(this);
+        shield.setText("\uD83D\uDEE1");
+        shield.setTextSize(24);
         bar.addView(shield);
         LinearLayout titles = Ui.vbox(this);
-        titles.setPadding(Ui.dp(this, 12), 0, 0, 0);
-        titles.addView(Ui.title(this, "AdBlock Test", 20));
-        android.widget.TextView sub = Ui.body(this, "AdBlock Test");
+        titles.setPadding(Ui.dp(this, 10), 0, 0, 0);
+        titles.addView(Ui.title(this, "AdBlock Test", 18));
+        TextView sub = Ui.mono(this, "SECURITY COMMAND CENTER");
+        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        sub.setTextColor(Ui.NEON_CYAN);
         titles.addView(sub);
         bar.addView(titles);
         return bar;
@@ -168,17 +210,17 @@ public class MainActivity extends Activity {
 
     private LinearLayout buildBottomNav() {
         LinearLayout nav = Ui.hbox(this);
-        nav.setBackgroundColor(Ui.SURFACE);
+        nav.setBackgroundColor(Ui.SOC_SURFACE);
         nav.setPadding(0, Ui.dp(this, 6), 0, Ui.dp(this, 6));
         String[] ids = {"dashboard", "networks", "settings"};
-        String[] labels = {"\uD83C\uDFE0 Home", "\uD83D\uDD27 Networks", "⚙ Settings"};
+        String[] labels = {"\uD83C\uDFE0 Home", "\uD83D\uDD27 Scope", "⚙ Settings"};
         for (int i = 0; i < ids.length; i++) {
             final String id = ids[i];
             Button b = new Button(this);
             b.setText(labels[i]);
             b.setAllCaps(false);
             b.setTag(id);
-            b.setTextColor(Ui.TEXT_DIM);
+            b.setTextColor(Ui.SOC_TEXT_DIM);
             b.setBackgroundColor(0x00000000);
             b.setLayoutParams(new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -205,223 +247,589 @@ public class MainActivity extends Activity {
             if (v instanceof Button) {
                 Button b = (Button) v;
                 boolean sel = base.equals(b.getTag());
-                b.setTextColor(sel ? Ui.ACCENT : Ui.TEXT_DIM);
+                b.setTextColor(sel ? Ui.NEON_GREEN : Ui.SOC_TEXT_DIM);
             }
         }
     }
 
-    // ---------- dashboard ----------
+    // ---------- Dashboard ----------
 
     private View dashboardScreen() {
-        LinearLayout col = Ui.vbox(this);
-        int p = Ui.dp(this, 16);
-        col.setPadding(p, p, p, p);
+        LinearLayout rootLayout = Ui.vbox(this);
 
-        // Hero verdict card
-        LinearLayout hero = Ui.card(this);
-        hero.setPadding(p, Ui.dp(this, 20), p, Ui.dp(this, 20));
-        LinearLayout heroRow = Ui.hbox(this);
-        // Shield icon
-        android.widget.TextView shield = new android.widget.TextView(this);
-        shield.setText("\uD83D\uDEE1");
-        shield.setTextSize(48);
-        heroRow.addView(shield);
-        LinearLayout heroText = Ui.vbox(this);
-        heroText.setPadding(Ui.dp(this, 16), 0, 0, 0);
-        android.widget.TextView headline;
-        android.widget.TextView subline;
-        if (lastResults.isEmpty()) {
-            headline = Ui.title(this, "Ready to test", 24);
-            subline = Ui.body(this, "Run a test to check your ad blocker");
+        int orientation = getResources().getConfiguration().orientation;
+        boolean isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE;
+        int screenWidthDp = getResources().getConfiguration().screenWidthDp;
+        boolean isWide = isLandscape || screenWidthDp >= 600;
+
+        int p = Ui.dp(this, 8);
+        int pOuter = Ui.dp(this, 8);
+
+        List<ProbeResult> activeList = testing || !currentTestResults.isEmpty() ? currentTestResults : lastResults;
+        Map<String, List<ProbeResult>> activeGrouped = TestRunner.groupByNetwork(activeList);
+
+        int leaksCount = 0;
+        for (ProbeResult r : activeList) {
+            if (r.status == ProbeStatus.TEST_AD_LOADED) leaksCount++;
+        }
+
+        // Left Column Content (Telemetry Stats + Active Scope Summary)
+        LinearLayout leftCol = Ui.vbox(this);
+
+        // 1. Telemetry Stat Panels (3 columns with explicit right margins)
+        LinearLayout statsRow = Ui.hbox(this);
+        int blockedNetCount = countBlockedNetworks(activeGrouped);
+        int totalNetCount = TestRunner.networks().size();
+
+        View statCard1 = socStatCard("BLOCKED", blockedNetCount + "/" + totalNetCount, Ui.NEON_GREEN);
+        LinearLayout.LayoutParams statLp1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        statLp1.setMargins(0, 0, Ui.dp(this, 6), 0);
+        statCard1.setLayoutParams(statLp1);
+        statsRow.addView(statCard1);
+
+        View statCard2 = socStatCard("LEAKED", String.valueOf(leaksCount), leaksCount > 0 ? Ui.NEON_RED : Ui.NEON_GREEN);
+        LinearLayout.LayoutParams statLp2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        statLp2.setMargins(0, 0, Ui.dp(this, 6), 0);
+        statCard2.setLayoutParams(statLp2);
+        statsRow.addView(statCard2);
+
+        View statCard3 = socStatCard("AUDITED", activeList.isEmpty() ? "0" : fmtTimeShort(store.getLastRunTimestamp()), Ui.SOC_TEXT_MONO);
+        LinearLayout.LayoutParams statLp3 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        statCard3.setLayoutParams(statLp3);
+        statsRow.addView(statCard3);
+
+        leftCol.addView(statsRow);
+
+        leftCol.addView(Ui.spacer(this, 4));
+
+        if (noInternet && !activeList.isEmpty()) {
+            TextView w = Ui.mono(this, "⚠ NO INTERNET CONNECTIVITY DETECTED DURING LAST RUN");
+            w.setTextColor(Ui.NEON_AMBER);
+            leftCol.addView(w);
+            leftCol.addView(Ui.spacer(this, 4));
+        }
+
+        // 2. Active Scope Selection Summary Card
+        leftCol.addView(activeScopeSummaryCard());
+
+        // Right Column Content (Network Probes List)
+        LinearLayout rightCol = Ui.vbox(this);
+
+        LinearLayout monitorCard = Ui.card(this);
+        monitorCard.setPadding(p, p, p, p);
+
+        LinearLayout monitorHeader = Ui.hbox(this);
+        String monitorTitle = testing ? "NETWORK PROBES (7) — LIVE" : (!activeList.isEmpty() ? "NETWORK PROBES (7)" : "NETWORK PROBES");
+        TextView mTitle = Ui.mono(this, monitorTitle);
+        mTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        mTitle.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        monitorHeader.addView(mTitle);
+
+        String badgeText = testing ? "LIVE PROBING" : (!activeList.isEmpty() ? leaksCount + " LEAKED / " + blockedNetCount + " BLOCKED" : "READY");
+        int badgeBg = testing ? Ui.ACCENT_DARK : (leaksCount > 0 ? 0xFF5C0018 : Ui.ACCENT_DARK);
+        int badgeTextCol = testing ? Ui.NEON_GREEN : (leaksCount > 0 ? Ui.NEON_RED : Ui.NEON_GREEN);
+        monitorHeader.addView(Ui.badgePill(this, badgeText, badgeBg, badgeTextCol));
+
+        monitorCard.addView(monitorHeader);
+        monitorCard.addView(Ui.spacer(this, 4));
+        monitorCard.addView(Ui.divider(this));
+        monitorCard.addView(Ui.spacer(this, 4));
+
+        for (NetworkProbe n : TestRunner.networks()) {
+            monitorCard.addView(compactNetworkRow(n, activeGrouped));
+        }
+        rightCol.addView(monitorCard);
+
+        // Dynamic Split Container Layout (Tablet / Widescreen / Landscape side-by-side vs Portrait single column)
+        LinearLayout mainContentContainer;
+        if (isWide) {
+            mainContentContainer = Ui.hbox(this);
+            mainContentContainer.setPadding(pOuter, pOuter, pOuter, pOuter);
+
+            LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            leftLp.setMargins(0, 0, Ui.dp(this, 8), 0);
+            leftCol.setLayoutParams(leftLp);
+            mainContentContainer.addView(leftCol);
+
+            LinearLayout.LayoutParams rightLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            rightCol.setLayoutParams(rightLp);
+            mainContentContainer.addView(rightCol);
         } else {
-            String verdict = overallVerdict();
-            if (verdict.equals("protected")) {
-                headline = Ui.title(this, "Protected", 24);
-                headline.setTextColor(Ui.OK);
-                subline = Ui.body(this, "Ad blocker is working");
-            } else if (verdict.equals("leaks")) {
-                headline = Ui.title(this, "Leaks detected", 24);
-                headline.setTextColor(Ui.DANGER);
-                subline = Ui.body(this, "Ads are getting through");
-            } else {
-                headline = Ui.title(this, "Mixed results", 24);
-                headline.setTextColor(Ui.WARN);
-                subline = Ui.body(this, "Partially protected");
-            }
-        }
-        heroText.addView(headline);
-        heroText.addView(subline);
-        heroRow.addView(heroText);
-        hero.addView(heroRow);
-        col.addView(hero);
-        col.addView(Ui.spacer(this, 12));
+            mainContentContainer = Ui.vbox(this);
+            mainContentContainer.setPadding(pOuter, pOuter, pOuter, pOuter);
 
-        // Stats row
-        if (!lastResults.isEmpty()) {
-            LinearLayout stats = Ui.hbox(this);
-            stats.addView(statCard("Blocked", String.valueOf(countBlockedNetworks()), Ui.OK));
-            stats.addView(Ui.spacer(this, 8));
-            stats.addView(statCard("Block rate", blockRatePct() + "%", Ui.ACCENT));
-            stats.addView(Ui.spacer(this, 8));
-            stats.addView(statCard("Last test", fmtTimeShort(store.getLastRunTimestamp()), Ui.TEXT_DIM));
-            col.addView(stats);
-            col.addView(Ui.spacer(this, 12));
+            mainContentContainer.addView(leftCol);
+            mainContentContainer.addView(Ui.spacer(this, 4));
+
+            // Scroll indicator in portrait mode
+            LinearLayout scrollHintBar = Ui.hbox(this);
+            scrollHintBar.setGravity(Gravity.CENTER);
+            scrollHintBar.setPadding(0, Ui.dp(this, 2), 0, Ui.dp(this, 2));
+            TextView scrollHint = Ui.badgePill(this, "📜 SCROLL DOWN FOR NETWORK PROBE BREAKDOWN ▼", Ui.SURFACE2, Ui.NEON_CYAN);
+            scrollHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+            scrollHintBar.addView(scrollHint);
+            mainContentContainer.addView(scrollHintBar);
+
+            mainContentContainer.addView(Ui.spacer(this, 4));
+            mainContentContainer.addView(rightCol);
         }
 
-        // Run button
-        Button run = Ui.primaryButton(this, testing ? "TESTING…" : "▶  RUN TEST");
-        run.setEnabled(!testing);
-        run.setLayoutParams(Ui.lpw(Ui.dp(this, 56)));
-        run.setOnClickListener(v -> startTest());
-        col.addView(run);
-        col.addView(Ui.spacer(this, 12));
+        // ScrollView for middle content
+        ScrollView scrollContent = new ScrollView(this);
+        scrollContent.setFillViewport(true);
+        scrollContent.setVerticalFadingEdgeEnabled(true);
+        scrollContent.setFadingEdgeLength(Ui.dp(this, 16));
+        scrollContent.addView(mainContentContainer);
+        scrollContent.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        rootLayout.addView(scrollContent);
 
-        if (noInternet && !lastResults.isEmpty()) {
-            android.widget.TextView w = Ui.body(this,
-                    "⚠ No internet during last run. Results may reflect connectivity, not blocking.");
-            w.setTextColor(Ui.WARN);
-            col.addView(w);
-            col.addView(Ui.spacer(this, 12));
-        }
+        // Anchored CTA Control Bar
+        LinearLayout bottomControlBar = Ui.vbox(this);
+        bottomControlBar.setBackground(Ui.cardBg(Ui.SOC_SURFACE, Ui.SOC_BORDER, 0));
+        bottomControlBar.setPadding(pOuter, Ui.dp(this, 6), pOuter, Ui.dp(this, 6));
 
-        // Recent tests
-        if (!lastResults.isEmpty()) {
-            col.addView(Ui.title(this, "Recent Network Tests", 18));
-            col.addView(Ui.spacer(this, 8));
-            LinearLayout list = Ui.card(this);
-            for (NetworkProbe n : TestRunner.networks()) {
-                list.addView(verdictRow(n));
-                list.addView(Ui.spacer(this, 6));
-            }
-            col.addView(list);
-            col.addView(Ui.spacer(this, 12));
+        GradientDrawable ctaBg = new GradientDrawable();
+        ctaBg.setColor(Ui.NEON_GREEN);
+        ctaBg.setCornerRadius(Ui.dp(this, 10));
 
-            // Recommended action
-            LinearLayout action = Ui.card(this);
-            action.addView(Ui.title(this, "Recommended Action", 16));
-            action.addView(Ui.spacer(this, 4));
-            action.addView(Ui.body(this, recommendedActionText()));
-            col.addView(action);
-        } else {
-            col.addView(Ui.body(this,
-                    "Tap RUN TEST to check whether your ad blocker stops test ads from 7 major ad networks."));
-        }
+        LinearLayout ctaWrapper = Ui.vbox(this);
+        ctaWrapper.setBackground(ctaBg);
+        ctaWrapper.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
+        ctaWrapper.setGravity(Gravity.CENTER);
+        ctaWrapper.setOnClickListener(v -> { if (!testing) startTest(); });
 
-        return Ui.scrollWrap(this, col);
+        TextView ctaTitle = new TextView(this);
+        ctaTitle.setText(testing ? "AUDIT IN PROGRESS…" : "RUN FULL AUDIT");
+        ctaTitle.setTextColor(0xFF0A0E14);
+        ctaTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        ctaTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        ctaWrapper.addView(ctaTitle);
+
+        TextView ctaSub = new TextView(this);
+        ctaSub.setText("inject synthetic ad probes (7 networks)");
+        ctaSub.setTextColor(0xFF0A0E14);
+        ctaSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        ctaSub.setTypeface(Typeface.MONOSPACE);
+        ctaWrapper.addView(ctaSub);
+
+        bottomControlBar.addView(ctaWrapper);
+
+        rootLayout.addView(bottomControlBar);
+
+        return rootLayout;
     }
 
-    private View statCard(String label, String value, int color) {
-        LinearLayout c = Ui.card(this);
-        c.setLayoutParams(new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        int p = Ui.dp(this, 12);
+    private View socStatCard(String label, String value, int color) {
+        LinearLayout c = Ui.vbox(this);
+        c.setBackground(Ui.cardBg(Ui.SOC_SURFACE));
+
+        int p = Ui.dp(this, 8);
         c.setPadding(p, p, p, p);
-        android.widget.TextView v = Ui.title(this, value, 20);
-        v.setTextColor(color);
-        c.addView(v);
-        c.addView(Ui.body(this, label));
+
+        TextView lView = Ui.mono(this, label);
+        lView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        lView.setTextColor(Ui.SOC_TEXT_DIM);
+        c.addView(lView);
+
+        c.addView(Ui.spacer(this, 2));
+
+        TextView vView = new TextView(this);
+        vView.setText(value);
+        vView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        vView.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        vView.setTextColor(color);
+        c.addView(vView);
+
         return c;
     }
 
-    private String overallVerdict() {
-        int blocked = 0, loaded = 0, total = 0;
-        for (NetworkProbe n : TestRunner.networks()) {
-            if (!enabled.getOrDefault(n.getId(), true)) continue;
-            total++;
-            String v = TestRunner.verdictFor(n.getId(), grouped);
-            if (v.equals("Blocked") || v.equals("Partially blocked")) blocked++;
-            else if (v.equals("Ads loading")) loaded++;
+    private View compactNetworkRow(NetworkProbe n, Map<String, List<ProbeResult>> activeGrouped) {
+        LinearLayout card = Ui.vbox(this);
+        card.setPadding(0, Ui.dp(this, 2), 0, Ui.dp(this, 2));
+
+        String verdict = TestRunner.verdictFor(n.getId(), activeGrouped);
+
+        String badgeText;
+        int badgeBg;
+        int badgeTextColor;
+        int dotColor;
+
+        if (verdict.equals("Blocked")) {
+            badgeText = "BLOCKED";
+            badgeBg = Ui.ACCENT_DARK;
+            badgeTextColor = Ui.NEON_GREEN;
+            dotColor = Ui.NEON_GREEN;
+        } else if (verdict.equals("Partially blocked")) {
+            badgeText = "PARTIAL";
+            badgeBg = 0xFF5C3C00;
+            badgeTextColor = Ui.NEON_AMBER;
+            dotColor = Ui.NEON_AMBER;
+        } else if (verdict.equals("Ads shown")) {
+            badgeText = "LEAKED";
+            badgeBg = 0xFF5C0018;
+            badgeTextColor = Ui.NEON_RED;
+            dotColor = Ui.NEON_RED;
+        } else if (verdict.equals("Disabled")) {
+            badgeText = "DISABLED";
+            badgeBg = Ui.SURFACE2;
+            badgeTextColor = Ui.SOC_TEXT_DIM;
+            dotColor = Ui.SOC_TEXT_DIM;
+        } else if (verdict.equals("No fill")) {
+            badgeText = "NO FILL";
+            badgeBg = Ui.SURFACE2;
+            badgeTextColor = Ui.NEON_AMBER;
+            dotColor = Ui.NEON_AMBER;
+        } else {
+            badgeText = "ERROR";
+            badgeBg = 0xFF5C0018;
+            badgeTextColor = Ui.NEON_RED;
+            dotColor = Ui.NEON_RED;
         }
-        if (total == 0) return "none";
-        if (blocked == total) return "protected";
-        if (loaded == total) return "leaks";
-        return "mixed";
-    }
 
-    private int countBlockedNetworks() {
-        int c = 0;
-        for (NetworkProbe n : TestRunner.networks()) {
-            if (!enabled.getOrDefault(n.getId(), true)) continue;
-            String v = TestRunner.verdictFor(n.getId(), grouped);
-            if (v.equals("Blocked") || v.equals("Partially blocked")) c++;
+        // Top Header: Bullet Dot + Network Name + Status Badge + Details Button
+        LinearLayout header = Ui.hbox(this);
+
+        TextView dot = new TextView(this);
+        dot.setText("● ");
+        dot.setTextSize(13);
+        dot.setTextColor(dotColor);
+        header.addView(dot);
+
+        TextView name = Ui.title(this, n.getName(), 15);
+        name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(name);
+
+        TextView pill = Ui.badgePill(this, badgeText, badgeBg, badgeTextColor);
+        header.addView(pill);
+
+        TextView detailsBtn = Ui.badgePill(this, "🔍 DETAILS", Ui.SURFACE2, Ui.NEON_CYAN);
+        LinearLayout.LayoutParams dtLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dtLp.setMargins(Ui.dp(this, 4), 0, 0, 0);
+        detailsBtn.setLayoutParams(dtLp);
+        detailsBtn.setOnClickListener(v -> {
+            List<ProbeResult> rs = activeGrouped.get(n.getId());
+            showNetworkDetailsDialog(n, rs);
+        });
+        header.addView(detailsBtn);
+
+        card.addView(header);
+
+        // Format breakdown list
+        List<ProbeResult> rs = activeGrouped.get(n.getId());
+        Map<AdFormat, ProbeResult> formatMap = new LinkedHashMap<>();
+        if (rs != null) {
+            for (ProbeResult r : rs) {
+                formatMap.put(r.format, r);
+            }
         }
-        return c;
-    }
 
-    private int blockRatePct() {
-        int total = 0, blocked = 0;
-        for (ProbeResult r : lastResults) {
-            // count per-network verdicts, not per-format
+        for (AdFormat f : n.getFormats()) {
+            LinearLayout fRow = Ui.hbox(this);
+            fRow.setPadding(Ui.dp(this, 10), Ui.dp(this, 1), 0, Ui.dp(this, 1));
+
+            TextView fName = Ui.mono(this, "• " + f.label);
+            fName.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 100), ViewGroup.LayoutParams.WRAP_CONTENT));
+            fRow.addView(fName);
+
+            ProbeResult r = formatMap.get(f);
+            if (r != null) {
+                TextView st = Ui.mono(this, r.status.label);
+                st.setTextColor(r.status.color);
+                fRow.addView(st);
+
+                if (r.showAdAction != null) {
+                    TextView showLink = new TextView(this);
+                    showLink.setText(" [👁 Show Ad]");
+                    showLink.setTextColor(Ui.NEON_CYAN);
+                    showLink.setTypeface(Typeface.DEFAULT_BOLD);
+                    showLink.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                    showLink.setPadding(Ui.dp(this, 4), 0, 0, 0);
+                    showLink.setOnClickListener(v -> r.showAdAction.run());
+                    fRow.addView(showLink);
+                }
+            } else {
+                TextView st = Ui.mono(this, "Not probed");
+                fRow.addView(st);
+            }
+
+            card.addView(fRow);
         }
-        for (NetworkProbe n : TestRunner.networks()) {
-            if (!enabled.getOrDefault(n.getId(), true)) continue;
-            total++;
-            String v = TestRunner.verdictFor(n.getId(), grouped);
-            if (v.equals("Blocked") || v.equals("Partially blocked")) blocked++;
-        }
-        return total == 0 ? 0 : (blocked * 100 / total);
+
+        card.addView(Ui.divider(this));
+        return card;
     }
 
-    private String fmtTimeShort(long ts) {
-        if (ts == 0) return "—";
-        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("MMM d, h:mm a",
-                java.util.Locale.US);
-        return f.format(new java.util.Date(ts));
-    }
+    private void showNetworkDetailsDialog(NetworkProbe n, List<ProbeResult> results) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(n.getName() + " — Technical Details");
 
-    private String recommendedActionText() {
-        String v = overallVerdict();
-        if (v.equals("protected"))
-            return "Your ad blocker is working well. Re-run the test periodically to confirm.";
-        if (v.equals("leaks"))
-            return "Ads are loading. Check that your ad blocker is enabled and updated, then re-run.";
-        if (v.equals("mixed"))
-            return "Some networks are leaking ads. Review the per-network details to see which ones.";
-        return "Run a test to get recommendations.";
-    }
+        LinearLayout layout = Ui.vbox(this);
+        int p = Ui.dp(this, 14);
+        layout.setPadding(p, p, p, p);
 
-    private View verdictRow(NetworkProbe n) {
-        LinearLayout row = Ui.hbox(this);
-        android.widget.TextView name = Ui.bodyBright(this, n.getName());
-        name.setLayoutParams(new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(name);
+        TextView sdkText = Ui.mono(this, "SDK Version: " + n.getSdkVersion());
+        layout.addView(sdkText);
+        layout.addView(Ui.spacer(this, 6));
+
         String verdict = TestRunner.verdictFor(n.getId(), grouped);
-        int color = Ui.TEXT_DIM;
-        // Stitch scheme: green = blocked/working, red = ads loaded/leaking, yellow = error
-        if (verdict.equals("Blocked") || verdict.equals("Partially blocked")) color = Ui.OK;
-        else if (verdict.equals("Ads loading")) color = Ui.DANGER;
-        else if (verdict.equals("Mixed")) color = Ui.WARN;
-        else if (verdict.contains("Error") || verdict.contains("fail")) color = Ui.WARN;
-        row.addView(Ui.statusPill(this, verdict, color));
-        final String id = n.getId();
-        row.setOnClickListener(v -> navTo("detail", id, true));
-        return row;
+        TextView verdictText = Ui.title(this, "Overall Verdict: " + verdict, 15);
+        verdictText.setTextColor(verdict.contains("Blocked") || verdict.contains("shown") ? Ui.NEON_GREEN : Ui.NEON_AMBER);
+        layout.addView(verdictText);
+        layout.addView(Ui.spacer(this, 8));
+        layout.addView(Ui.divider(this));
+        layout.addView(Ui.spacer(this, 6));
+
+        layout.addView(Ui.mono(this, "FORMAT PROBE BREAKDOWN:"));
+        layout.addView(Ui.spacer(this, 4));
+
+        if (results != null && !results.isEmpty()) {
+            for (ProbeResult r : results) {
+                LinearLayout rRow = Ui.vbox(this);
+                rRow.setBackground(Ui.cardBg(Ui.SURFACE2));
+                rRow.setPadding(p, p, p, p);
+
+                TextView fTitle = Ui.title(this, r.format.label + " — " + r.status.label, 14);
+                fTitle.setTextColor(r.status.color);
+                rRow.addView(fTitle);
+
+                rRow.addView(Ui.mono(this, "Latency: " + r.latencyMs + " ms"));
+                if (r.errorCode != null) {
+                    rRow.addView(Ui.mono(this, "Error Code: " + r.errorCode));
+                }
+                if (r.errorMessage != null) {
+                    rRow.addView(Ui.body(this, "Details: " + r.errorMessage));
+                }
+
+                if (r.showAdAction != null) {
+                    rRow.addView(Ui.spacer(this, 6));
+                    Button previewBtn = Ui.ghostButton(this, "👁 Preview Loaded " + r.format.label);
+                    previewBtn.setOnClickListener(v -> r.showAdAction.run());
+                    rRow.addView(previewBtn);
+                }
+
+                layout.addView(rRow);
+                layout.addView(Ui.spacer(this, 6));
+            }
+        } else {
+            layout.addView(Ui.body(this, "No probe results available for this provider."));
+        }
+
+        layout.addView(Ui.spacer(this, 6));
+        layout.addView(Ui.mono(this, "PROBE METHODOLOGY:"));
+        layout.addView(Ui.spacer(this, 4));
+        layout.addView(Ui.body(this, n.getMethodology()));
+
+        builder.setView(Ui.scrollWrap(this, layout));
+        builder.setPositiveButton("Close", (dialog, which) -> dialog.dismiss());
+        builder.show();
     }
 
-    private View spacerH(float weight) {
-        View v = new View(this);
-        v.setLayoutParams(new LinearLayout.LayoutParams(0, 1, weight));
-        return v;
+    private View activeScopeSummaryCard() {
+        LinearLayout card = Ui.card(this);
+        int p = Ui.dp(this, 8);
+        card.setPadding(p, p, p, p);
+
+        int activeFmtCount = 0;
+        int totalFmtCount = 0;
+        for (NetworkProbe n : TestRunner.networks()) {
+            for (AdFormat f : n.getFormats()) {
+                totalFmtCount++;
+                if (store.isFormatEnabled(n.getId(), f) && enabled.getOrDefault(n.getId(), true)) {
+                    activeFmtCount++;
+                }
+            }
+        }
+
+        LinearLayout header = Ui.hbox(this);
+        TextView title = Ui.mono(this, "ACTIVE SCOPE ( 範囲 )");
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(title);
+        header.addView(Ui.badgePill(this, activeFmtCount + " / " + totalFmtCount + " FORMATS", Ui.ACCENT_DARK, Ui.NEON_GREEN));
+        card.addView(header);
+
+        card.addView(Ui.spacer(this, 4));
+
+        LinearLayout row = Ui.hbox(this);
+        TextView desc = Ui.body(this, "Configure providers & format chips:");
+        desc.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(desc);
+
+        Button configBtn = Ui.ghostButton(this, "⚙ Configure Scope");
+        configBtn.setOnClickListener(v -> navTo("networks", null, true));
+        row.addView(configBtn);
+
+        card.addView(row);
+        return card;
     }
 
-    // ---------- networks list ----------
+    // ---------- Dedicated Selection & Scope Hub (Networks Tab) ----------
 
     private View networksScreen() {
         LinearLayout col = Ui.vbox(this);
-        int p = Ui.dp(this, 16);
+        int p = Ui.dp(this, 10);
         col.setPadding(p, p, p, p);
-        col.addView(Ui.title(this, "Ad networks", 20));
-        col.addView(Ui.spacer(this, 4));
-        col.addView(Ui.body(this,
-                "Tap a network for per-format results and diagnostics. "
-                        + "Toggle a network off to skip it in the next test run."));
-        col.addView(Ui.spacer(this, 12));
+
+        int activeFmtCount = 0;
+        int totalFmtCount = 0;
         for (NetworkProbe n : TestRunner.networks()) {
-            col.addView(networkCard(n));
-            col.addView(Ui.spacer(this, 10));
+            for (AdFormat f : n.getFormats()) {
+                totalFmtCount++;
+                if (store.isFormatEnabled(n.getId(), f) && enabled.getOrDefault(n.getId(), true)) {
+                    activeFmtCount++;
+                }
+            }
         }
+
+        // Header Card with Quick Presets
+        LinearLayout headerCard = Ui.card(this);
+        headerCard.setPadding(p, p, p, p);
+
+        LinearLayout header = Ui.hbox(this);
+        TextView title = Ui.mono(this, "TEST SELECTION SCOPE ( 範囲 )");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(title);
+        header.addView(Ui.badgePill(this, activeFmtCount + " / " + totalFmtCount + " ACTIVE", Ui.ACCENT_DARK, Ui.NEON_GREEN));
+        headerCard.addView(header);
+
+        headerCard.addView(Ui.spacer(this, 6));
+
+        LinearLayout presetRow = Ui.hbox(this);
+        TextView presetAll = Ui.chipPill(this, "☑ All", activeFmtCount == totalFmtCount);
+        presetAll.setOnClickListener(v -> setPresetScope(true, true, true));
+        LinearLayout.LayoutParams lpPreset1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lpPreset1.setMargins(0, 0, Ui.dp(this, 4), 0);
+        presetAll.setLayoutParams(lpPreset1);
+        presetAll.setGravity(Gravity.CENTER);
+        presetRow.addView(presetAll);
+
+        TextView presetNone = Ui.chipPill(this, "🔲 Clear", activeFmtCount == 0);
+        presetNone.setOnClickListener(v -> setPresetScope(false, false, false));
+        LinearLayout.LayoutParams lpPreset2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lpPreset2.setMargins(0, 0, Ui.dp(this, 4), 0);
+        presetNone.setLayoutParams(lpPreset2);
+        presetNone.setGravity(Gravity.CENTER);
+        presetRow.addView(presetNone);
+
+        TextView presetBanners = Ui.chipPill(this, "🖼️ Banners", false);
+        presetBanners.setOnClickListener(v -> setPresetScope(true, false, false));
+        LinearLayout.LayoutParams lpPreset3 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lpPreset3.setMargins(0, 0, Ui.dp(this, 4), 0);
+        presetBanners.setLayoutParams(lpPreset3);
+        presetBanners.setGravity(Gravity.CENTER);
+        presetRow.addView(presetBanners);
+
+        TextView presetFullscreen = Ui.chipPill(this, "🎬 Fullscreen", false);
+        presetFullscreen.setOnClickListener(v -> setPresetScope(false, true, true));
+        LinearLayout.LayoutParams lpPreset4 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        presetFullscreen.setLayoutParams(lpPreset4);
+        presetFullscreen.setGravity(Gravity.CENTER);
+        presetRow.addView(presetFullscreen);
+
+        headerCard.addView(presetRow);
+        col.addView(headerCard);
+
+        col.addView(Ui.spacer(this, 8));
+
+        // 7 Provider Scope Cards
+        for (NetworkProbe n : TestRunner.networks()) {
+            LinearLayout providerCard = Ui.card(this);
+            providerCard.setPadding(p, p, p, p);
+
+            boolean providerEnabled = enabled.getOrDefault(n.getId(), true);
+
+            // Line 1: Checkbox + Active Format Counter Badge
+            LinearLayout topRow = Ui.hbox(this);
+            CheckBox providerCb = Ui.checkBox(this, n.getName(), providerEnabled);
+            providerCb.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            topRow.addView(providerCb);
+
+            int pActiveCount = 0;
+            for (AdFormat f : n.getFormats()) {
+                if (store.isFormatEnabled(n.getId(), f) && providerEnabled) pActiveCount++;
+            }
+            topRow.addView(Ui.badgePill(this, pActiveCount + " / " + n.getFormats().size() + " FORMATS", providerEnabled ? Ui.ACCENT_DARK : Ui.SURFACE2, providerEnabled ? Ui.NEON_GREEN : Ui.SOC_TEXT_DIM));
+
+            providerCard.addView(topRow);
+            providerCard.addView(Ui.spacer(this, 6));
+
+            // Line 2: ALL 3 Selectable Format Chips
+            LinearLayout chipRow = Ui.hbox(this);
+
+            List<AdFormat> formats = n.getFormats();
+            for (int i = 0; i < formats.size(); i++) {
+                AdFormat format = formats.get(i);
+                boolean fmtSelected = store.isFormatEnabled(n.getId(), format) && providerEnabled;
+
+                String fullLabel;
+                switch (format) {
+                    case BANNER: fullLabel = "🖼 Banner"; break;
+                    case INTERSTITIAL: fullLabel = "🎬 Interstitial"; break;
+                    case REWARDED: fullLabel = "🎁 Rewarded"; break;
+                    default: fullLabel = format.label; break;
+                }
+
+                TextView chip = Ui.chipPill(this, fullLabel, fmtSelected);
+                LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                if (i < formats.size() - 1) {
+                    chipLp.setMargins(0, 0, Ui.dp(this, 6), 0);
+                }
+                chip.setLayoutParams(chipLp);
+                chip.setGravity(Gravity.CENTER);
+                chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                chip.setPadding(Ui.dp(this, 4), Ui.dp(this, 6), Ui.dp(this, 4), Ui.dp(this, 6));
+
+                chip.setOnClickListener(v -> {
+                    boolean nextState = !store.isFormatEnabled(n.getId(), format);
+                    store.setFormatEnabled(n.getId(), format, nextState);
+
+                    boolean anyFmt = false;
+                    for (AdFormat f : n.getFormats()) {
+                        if (store.isFormatEnabled(n.getId(), f)) { anyFmt = true; break; }
+                    }
+                    enabled.put(n.getId(), anyFmt);
+                    store.setEnabled(n.getId(), anyFmt);
+
+                    navTo("networks", null, false);
+                });
+                chipRow.addView(chip);
+            }
+
+            providerCard.addView(chipRow);
+
+            providerCb.setOnCheckedChangeListener((v, checked) -> {
+                enabled.put(n.getId(), checked);
+                store.setEnabled(n.getId(), checked);
+                for (AdFormat f : n.getFormats()) {
+                    store.setFormatEnabled(n.getId(), f, checked);
+                }
+                navTo("networks", null, false);
+            });
+
+            col.addView(providerCard);
+            col.addView(Ui.spacer(this, 6));
+        }
+
         return Ui.scrollWrap(this, col);
+    }
+
+    private void setPresetScope(boolean enableBanners, boolean enableInterstitials, boolean enableRewarded) {
+        for (NetworkProbe n : TestRunner.networks()) {
+            boolean anyEnable = false;
+            for (AdFormat f : n.getFormats()) {
+                boolean enableFmt = (f == AdFormat.BANNER && enableBanners)
+                        || (f == AdFormat.INTERSTITIAL && enableInterstitials)
+                        || (f == AdFormat.REWARDED && enableRewarded);
+
+                store.setFormatEnabled(n.getId(), f, enableFmt);
+                if (enableFmt) anyEnable = true;
+            }
+            enabled.put(n.getId(), anyEnable);
+            store.setEnabled(n.getId(), anyEnable);
+        }
+        toast("Preset scope applied");
+        navTo("networks", null, false);
     }
 
     private View networkCard(NetworkProbe n) {
@@ -434,15 +842,14 @@ public class MainActivity extends Activity {
         txt.addView(Ui.mono(this, n.getSdkVersion()));
         row.addView(txt);
         String verdict = TestRunner.verdictFor(n.getId(), grouped);
-        int color = Ui.TEXT_DIM;
-        if (verdict.equals("Blocked")) color = Ui.DANGER;
-        else if (verdict.equals("Ads loading")) color = Ui.OK;
-        else if (verdict.equals("Partially blocked") || verdict.equals("Mixed")) color = Ui.WARN;
+        int color = Ui.SOC_TEXT_DIM;
+        if (verdict.equals("Blocked") || verdict.equals("Partially blocked") || verdict.equals("Ads shown")) color = Ui.NEON_GREEN;
+        else if (verdict.equals("Mixed")) color = Ui.NEON_AMBER;
         row.addView(Ui.statusPill(this, verdict, color));
         card.addView(row);
         card.addView(Ui.spacer(this, 8));
         LinearLayout row2 = Ui.hbox(this);
-        android.widget.TextView sup = Ui.body(this, "Formats: ");
+        TextView sup = Ui.body(this, "Formats: ");
         row2.addView(sup);
         StringBuilder sb = new StringBuilder();
         for (AdFormat f : n.getFormats()) {
@@ -451,71 +858,125 @@ public class MainActivity extends Activity {
         }
         row2.addView(Ui.bodyBright(this, sb.toString()));
         row2.addView(spacerH(1));
-        android.widget.CheckBox cb = Ui.checkBox(this, "Enabled", enabled.get(n.getId()));
+        CheckBox cb = Ui.checkBox(this, "Enabled", enabled.get(n.getId()));
         cb.setOnCheckedChangeListener((v, checked) -> {
             enabled.put(n.getId(), checked);
             store.setEnabled(n.getId(), checked);
         });
-        row2.addView(cb);
         card.addView(row2);
         final String id = n.getId();
         card.setOnClickListener(v -> navTo("detail", id, true));
         return card;
     }
 
-    // ---------- test progress ----------
+    // ---------- test progress / results ----------
 
-    private final Map<String, android.widget.TextView> progressRows = new LinkedHashMap<>();
+    private final Map<String, LinearLayout> progressRows = new LinkedHashMap<>();
 
     private View progressScreen() {
         LinearLayout col = Ui.vbox(this);
         int p = Ui.dp(this, 16);
         col.setPadding(p, p, p, p);
-        col.addView(Ui.title(this, testing ? "Test in progress…" : "Test", 20));
+
+        List<ProbeResult> activeList = testing || !currentTestResults.isEmpty() ?
+                currentTestResults : lastResults;
+
+        String headerTitle;
+        if (testing) headerTitle = "AUDIT IN PROGRESS…";
+        else if (!activeList.isEmpty()) headerTitle = "AUDIT RESULTS";
+        else headerTitle = "AUDIT PROGRESS";
+
+        col.addView(Ui.mono(this, headerTitle));
+
+        if (!activeList.isEmpty() && !testing) {
+            int blockedCount = 0, adShownCount = 0;
+            for (ProbeResult r : activeList) {
+                if (r.status == ProbeStatus.BLOCKED) blockedCount++;
+                else if (r.status == ProbeStatus.TEST_AD_LOADED) adShownCount++;
+            }
+            TextView summaryText = Ui.mono(this,
+                    "Completed · " + blockedCount + " Blocked · " + adShownCount + " Ad Shown");
+            summaryText.setTextColor(Ui.NEON_GREEN);
+            col.addView(summaryText);
+        }
+
         col.addView(Ui.spacer(this, 12));
         progressRows.clear();
-        // Build a lookup of completed results so we can restore state
-        // when the user navigates away and back during a test.
+
         Map<String, ProbeResult> done = new LinkedHashMap<>();
-        for (ProbeResult r : currentTestResults) {
+        for (ProbeResult r : activeList) {
             done.put(r.networkId + "|" + r.format.name(), r);
         }
+
         for (NetworkProbe n : TestRunner.networks()) {
             LinearLayout card = Ui.card(this);
             card.addView(Ui.title(this, n.getName(), 16));
             card.addView(Ui.spacer(this, 6));
             for (AdFormat f : n.getFormats()) {
                 LinearLayout row = Ui.hbox(this);
-                android.widget.TextView lbl = Ui.body(this, f.label);
+                TextView lbl = Ui.body(this, f.label);
                 lbl.setLayoutParams(new LinearLayout.LayoutParams(0,
                         ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
                 row.addView(lbl);
-                android.widget.TextView st = Ui.body(this, "…");
-                // Restore completed result if available
+
                 ProbeResult r = done.get(n.getId() + "|" + f.name());
-                if (r != null) {
-                    st.setText(r.summary());
-                    st.setTextColor(r.status.color);
-                }
-                row.addView(st);
+                renderFormatRowContent(row, r, "…", Ui.SOC_TEXT_DIM);
+
                 card.addView(row);
-                progressRows.put(n.getId() + "|" + f.name(), st);
+                progressRows.put(n.getId() + "|" + f.name(), row);
             }
             col.addView(card);
             col.addView(Ui.spacer(this, 10));
         }
+
         if (testing) {
-            Button cancel = Ui.ghostButton(this, "Cancel test");
+            Button cancel = Ui.ghostButton(this, "CANCEL AUDIT");
             cancel.setOnClickListener(v -> {
                 if (runner != null) runner.cancel();
             });
             col.addView(cancel);
         } else {
-            Button back = Ui.ghostButton(this, "Back to dashboard");
+            LinearLayout btnRow = Ui.hbox(this);
+            Button runAgain = Ui.primaryButton(this, "▶ RUN AUDIT AGAIN");
+            runAgain.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            runAgain.setOnClickListener(v -> startTest());
+            btnRow.addView(runAgain);
+            btnRow.addView(Ui.spacer(this, 8));
+            Button back = Ui.ghostButton(this, "Home Dashboard");
+            back.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             back.setOnClickListener(v -> navTo("dashboard", null, true));
-            col.addView(back);
+            btnRow.addView(back);
+            col.addView(btnRow);
         }
         return Ui.scrollWrap(this, col);
+    }
+
+    private void renderFormatRowContent(LinearLayout row, ProbeResult r, String defaultText, int defaultColor) {
+        while (row.getChildCount() > 1) {
+            row.removeViewAt(1);
+        }
+
+        if (r != null) {
+            TextView st = Ui.mono(this, r.summary());
+            st.setTextColor(r.status.color);
+            row.addView(st);
+
+            if (r.showAdAction != null) {
+                TextView link = new TextView(this);
+                link.setText(" [👁 Show Ad]");
+                link.setTextColor(Ui.NEON_CYAN);
+                link.setTypeface(Typeface.DEFAULT_BOLD);
+                link.setPadding(Ui.dp(this, 8), 0, 0, 0);
+                link.setOnClickListener(v -> r.showAdAction.run());
+                row.addView(link);
+            }
+        } else {
+            TextView st = Ui.mono(this, defaultText);
+            st.setTextColor(defaultColor);
+            row.addView(st);
+        }
     }
 
     private void startTest() {
@@ -523,6 +984,11 @@ public class MainActivity extends Activity {
         testing = true;
         currentTestResults.clear();
         DebugLog.log("=== Test started ===");
+
+        for (NetworkProbe n : TestRunner.networks()) {
+            enabled.put(n.getId(), store.isEnabled(n.getId()));
+        }
+
         navTo("progress", null, true);
         runner = new TestRunner();
         runner.run(this, enabled, new TestRunner.Listener() {
@@ -535,15 +1001,16 @@ public class MainActivity extends Activity {
                 markNetworkRows(network, "initializing…");
             }
             @Override public void onFormatStart(NetworkProbe network, AdFormat format) {
-                setRow(network.getId(), format, "loading…", Ui.TEXT_DIM);
+                setRow(network.getId(), format, "loading…", Ui.SOC_TEXT_DIM, null);
             }
             @Override public void onFormatResult(ProbeResult result) {
                 currentTestResults.add(result);
+                grouped = TestRunner.groupByNetwork(currentTestResults);
                 DebugLog.logLoadResult(result.networkId, result.format.name(),
                         result.status.name(), result.errorCode, result.errorMessage,
                         result.latencyMs);
                 setRow(result.networkId, result.format,
-                        result.summary(), result.status.color);
+                        result.summary(), result.status.color, result);
             }
             @Override public void onNetworkDone(NetworkProbe network) {}
             @Override public void onAllDone(List<ProbeResult> all) {
@@ -553,20 +1020,19 @@ public class MainActivity extends Activity {
                 grouped = TestRunner.groupByNetwork(lastResults);
                 store.saveResults(lastResults);
                 ReviewHelper.maybePrompt(MainActivity.this, lastResults);
-                navTo("dashboard", null, true);
+                navTo("progress", null, false);
             }
         });
     }
 
     private void markNetworkRows(NetworkProbe n, String text) {
-        for (AdFormat f : n.getFormats()) setRow(n.getId(), f, text, Ui.TEXT_DIM);
+        for (AdFormat f : n.getFormats()) setRow(n.getId(), f, text, Ui.SOC_TEXT_DIM, null);
     }
 
-    private void setRow(String netId, AdFormat f, String text, int color) {
-        android.widget.TextView tv = progressRows.get(netId + "|" + f.name());
-        if (tv != null) {
-            tv.setText(text);
-            tv.setTextColor(color);
+    private void setRow(String netId, AdFormat f, String text, int color, ProbeResult result) {
+        LinearLayout row = progressRows.get(netId + "|" + f.name());
+        if (row != null) {
+            renderFormatRowContent(row, result, text, color);
         }
     }
 
@@ -587,10 +1053,9 @@ public class MainActivity extends Activity {
         String verdict = TestRunner.verdictFor(n.getId(), grouped);
         LinearLayout vr = Ui.hbox(this);
         vr.addView(Ui.body(this, "Verdict: "));
-        int color = Ui.TEXT_DIM;
-        if (verdict.equals("Blocked")) color = Ui.DANGER;
-        else if (verdict.equals("Ads loading")) color = Ui.OK;
-        else if (verdict.equals("Partially blocked") || verdict.equals("Mixed")) color = Ui.WARN;
+        int color = Ui.SOC_TEXT_DIM;
+        if (verdict.equals("Blocked") || verdict.equals("Partially blocked") || verdict.equals("Ads shown")) color = Ui.NEON_GREEN;
+        else if (verdict.equals("Mixed")) color = Ui.NEON_AMBER;
         vr.addView(Ui.statusPill(this, verdict, color));
         col.addView(vr);
         col.addView(Ui.spacer(this, 12));
@@ -618,21 +1083,30 @@ public class MainActivity extends Activity {
     private View formatResultCard(ProbeResult r) {
         LinearLayout card = Ui.card(this);
         LinearLayout row = Ui.hbox(this);
-        android.widget.TextView name = Ui.title(this, r.format.label, 16);
+        TextView name = Ui.title(this, r.format.label, 16);
         name.setLayoutParams(new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(name);
         row.addView(Ui.statusPill(this, r.status.label, r.status.color));
         card.addView(row);
         card.addView(Ui.spacer(this, 6));
-        card.addView(Ui.body(this, "Latency: " + r.latencyMs + " ms"));
+        card.addView(Ui.mono(this, "Latency: " + r.latencyMs + " ms"));
         if (r.errorCode != null) {
             card.addView(Ui.mono(this, "Error code: " + r.errorCode));
         }
         if (r.errorMessage != null) {
-            android.widget.TextView m = Ui.body(this, r.errorMessage);
+            TextView m = Ui.body(this, r.errorMessage);
             card.addView(m);
         }
+
+        if (r.showAdAction != null) {
+            card.addView(Ui.spacer(this, 8));
+            Button showBtn = Ui.ghostButton(this, "👁 Preview Loaded Ad");
+            showBtn.setOnClickListener(v -> r.showAdAction.run());
+            card.addView(showBtn);
+        }
+
+        card.addView(Ui.spacer(this, 4));
         card.addView(Ui.mono(this, "SDK: " + r.sdkVersion));
         return card;
     }
@@ -645,6 +1119,7 @@ public class MainActivity extends Activity {
         col.setPadding(p, p, p, p);
         col.addView(Ui.title(this, "Settings & About", 20));
         col.addView(Ui.spacer(this, 12));
+
         col.addView(menuButton("📄  Privacy Policy", () -> navTo("privacy", null, true)));
         col.addView(Ui.spacer(this, 10));
         col.addView(menuButton("🧪  Methodology", () -> navTo("methodology", null, true)));
@@ -660,7 +1135,7 @@ public class MainActivity extends Activity {
         }));
         col.addView(Ui.spacer(this, 16));
         LinearLayout card = Ui.card(this);
-        card.addView(Ui.body(this,
+        card.addView(Ui.mono(this,
                 "Test runs so far: " + store.getRunCount()
                         + "\nVersion: " + BuildConfig.VERSION_NAME
                         + " (" + BuildConfig.VERSION_CODE + ")"));
@@ -682,8 +1157,8 @@ public class MainActivity extends Activity {
         col.setPadding(p, p, p, p);
         col.addView(Ui.title(this, title, 20));
         col.addView(Ui.spacer(this, 12));
-        android.widget.TextView t = Ui.body(this, text);
-        t.setTextColor(Ui.TEXT);
+        TextView t = Ui.body(this, text);
+        t.setTextColor(Ui.SOC_TEXT);
         col.addView(t);
         if (withContactButton) {
             col.addView(Ui.spacer(this, 16));
@@ -707,11 +1182,11 @@ public class MainActivity extends Activity {
         col.addView(Ui.spacer(this, 12));
 
         LinearLayout sdkCard = Ui.card(this);
-        sdkCard.addView(Ui.title(this, "SDK versions", 16));
+        sdkCard.addView(Ui.mono(this, "SDK VERSIONS:"));
         sdkCard.addView(Ui.spacer(this, 6));
         for (NetworkProbe n : TestRunner.networks()) {
             LinearLayout row = Ui.hbox(this);
-            android.widget.TextView name = Ui.bodyBright(this, n.getName());
+            TextView name = Ui.bodyBright(this, n.getName());
             name.setLayoutParams(new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             row.addView(name);
@@ -723,9 +1198,9 @@ public class MainActivity extends Activity {
         col.addView(Ui.spacer(this, 12));
 
         LinearLayout statCard = Ui.card(this);
-        statCard.addView(Ui.title(this, "Run statistics", 16));
+        statCard.addView(Ui.mono(this, "RUN STATISTICS:"));
         statCard.addView(Ui.spacer(this, 6));
-        statCard.addView(Ui.body(this, "Completed runs: " + store.getRunCount()));
+        statCard.addView(Ui.mono(this, "Completed runs: " + store.getRunCount()));
         if (!lastResults.isEmpty()) {
             int loaded = 0, blocked = 0, nofill = 0, errs = 0;
             long totalMs = 0;
@@ -738,20 +1213,20 @@ public class MainActivity extends Activity {
                     default: errs++; break;
                 }
             }
-            statCard.addView(Ui.body(this,
+            statCard.addView(Ui.mono(this,
                     "Last run probes: " + lastResults.size()
-                            + "\nLoaded: " + loaded + " · Blocked: " + blocked
+                            + "\nBlocked: " + blocked + " · Ad Shown: " + loaded
                             + " · No fill: " + nofill + " · Other: " + errs
                             + "\nTotal probe time: " + totalMs + " ms"
                             + "\nLast run: " + fmtTime(store.getLastRunTimestamp())));
         } else {
-            statCard.addView(Ui.body(this, "No runs yet."));
+            statCard.addView(Ui.mono(this, "No runs yet."));
         }
         col.addView(statCard);
         col.addView(Ui.spacer(this, 12));
 
         if (!lastResults.isEmpty()) {
-            android.widget.Button copyBtn = Ui.ghostButton(this, "Copy last run results");
+            Button copyBtn = Ui.ghostButton(this, "Copy last run results");
             copyBtn.setOnClickListener(v -> {
                 StringBuilder sb = new StringBuilder();
                 sb.append("AdBlock Test results\n");
@@ -762,41 +1237,51 @@ public class MainActivity extends Activity {
                       .append(" | ").append(r.errorMessage)
                       .append(" | ").append(r.latencyMs).append("ms\n");
                 }
-                android.content.ClipboardManager cm =
-                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(android.content.ClipData.newPlainText(
-                    "AdBlock Test results", sb.toString()));
-                android.widget.Toast.makeText(this,
-                    "Results copied. Paste them in chat.", android.widget.Toast.LENGTH_LONG).show();
+                ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(ClipData.newPlainText("AdBlock Test results", sb.toString()));
+                Toast.makeText(this, "Results copied. Paste them in chat.", Toast.LENGTH_LONG).show();
             });
             col.addView(copyBtn);
             col.addView(Ui.spacer(this, 8));
         }
 
-        android.widget.Button logBtn = Ui.ghostButton(this, "Export debug log path");
+        Button logBtn = Ui.ghostButton(this, "Export debug log path");
         logBtn.setOnClickListener(v -> {
             String path = DebugLog.getLogPath();
             if (path == null) {
-                android.widget.Toast.makeText(this, "No log file yet.",
-                        android.widget.Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "No log file yet.", Toast.LENGTH_SHORT).show();
                 return;
             }
-            android.content.ClipboardManager cm =
-                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("Debug log path", path));
-            android.widget.Toast.makeText(this,
-                "Log path copied: " + path, android.widget.Toast.LENGTH_LONG).show();
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("Debug log path", path));
+            Toast.makeText(this, "Log path copied: " + path, Toast.LENGTH_LONG).show();
         });
         col.addView(logBtn);
         col.addView(Ui.spacer(this, 12));
 
         LinearLayout errCard = Ui.card(this);
-        errCard.addView(Ui.title(this, "Error-code reference", 16));
+        errCard.addView(Ui.mono(this, "ERROR CODE REFERENCE:"));
         errCard.addView(Ui.spacer(this, 6));
         errCard.addView(Ui.body(this, errorReferenceText()));
         col.addView(errCard);
 
         return Ui.scrollWrap(this, col);
+    }
+
+    private int countBlockedNetworks(Map<String, List<ProbeResult>> activeGrouped) {
+        int c = 0;
+        for (NetworkProbe n : TestRunner.networks()) {
+            if (!enabled.getOrDefault(n.getId(), true)) continue;
+            String v = TestRunner.verdictFor(n.getId(), activeGrouped);
+            if (v.equals("Blocked") || v.equals("Partially blocked") || v.equals("Ads shown")) c++;
+        }
+        return c;
+    }
+
+    private String fmtTimeShort(long ts) {
+        if (ts == 0) return "—";
+        SimpleDateFormat f = new SimpleDateFormat("MMM d, h:mm a", Locale.US);
+        return f.format(new Date(ts));
     }
 
     private String errorReferenceText() {
@@ -815,8 +1300,6 @@ public class MainActivity extends Activity {
                 + "SDK errors shown verbatim.";
     }
 
-    // ---------- static texts ----------
-
     private String privacyPolicyText() {
         return "PRIVACY POLICY — AdBlock Test: Ad Blocker Check\n"
                 + "Developer: boofus productions (" + "bronzefloor66@gmail.com" + ")\n"
@@ -826,7 +1309,7 @@ public class MainActivity extends Activity {
                 + "tap RUN TEST, the app initializes the ad SDKs of up to 7 ad networks "
                 + "(AdMob, Unity Ads, ironSource, InMobi, Chartboost, Start.io, Liftoff) and "
                 + "attempts to load one TEST ad per format (banner, interstitial, rewarded). "
-                + "Ads are loaded only — they are never displayed and never clicked.\n\n"
+                + "Ads are loaded only — they are never displayed unless you tap 'Show Ad'.\n\n"
                 + "IMPORTANT: THIS APP IS NOT \"100% ON-DEVICE\"\n"
                 + "To test whether ad blocking works, the app must intentionally contact each "
                 + "ad network's servers over the internet during a test run. Each SDK makes its "
@@ -876,27 +1359,17 @@ public class MainActivity extends Activity {
                 + "\"Init failed\" with the SDK's error.\n\n"
                 + "3. ONE TEST-AD LOAD PER FORMAT\n"
                 + "For each enabled format (banner, interstitial, rewarded) the app attempts a "
-                + "single ad load. The ad is never shown and never clicked. A 30-second "
-                + "watchdog guards each probe. Banner views are attached to a hidden 1×1 "
-                + "container because several SDKs require window attachment before loading.\n\n"
+                + "single ad load. A 30-second watchdog guards each probe.\n\n"
                 + "4. CLASSIFICATION\n"
-                + "• Loaded — a test ad arrived: this network is NOT blocked.\n"
+                + "• Ad shown — a test ad arrived and can be previewed by clicking 'Show Ad'.\n"
                 + "• Blocked — the SDK reported a network-layer failure (DNS/connection/TLS "
-                + "failure, timeout, unreachable host) while the device has internet. This is "
-                + "the ad-blocker signal: something on the device or network stopped the ad "
-                + "request.\n"
-                + "• No fill — the ad server was reached but returned no ad. This is not a "
-                + "blocking signal.\n"
-                + "• Init failed / Error — SDK or configuration problems, shown with the raw "
-                + "SDK error code and message for diagnosis.\n"
+                + "failure, timeout, unreachable host) while the device has internet.\n"
+                + "• No fill — the ad server was reached but returned no ad.\n"
+                + "• Init failed / Error — SDK or configuration problems.\n"
                 + "• Timed out — no SDK callback within 30 seconds.\n\n"
-                + "Each network documents different error codes; the per-network mapping is "
-                + "listed under Settings → Technical details. When an SDK gives no usable "
-                + "error (Start.io), a test-mode failure with working internet is classified "
-                + "as Blocked, because test ads should always fill.\n\n"
                 + "5. VERDICT\n"
                 + "A network reads \"Blocked\" when at least one format was blocked and none "
-                + "loaded; \"Ads loading\" when every format loaded; otherwise the most "
+                + "loaded; \"Ads shown\" when every format loaded; otherwise the most "
                 + "informative mixed state. The dashboard summarizes across networks.";
     }
 
@@ -915,12 +1388,18 @@ public class MainActivity extends Activity {
 
     // ---------- helpers ----------
 
+    private View spacerH(float weight) {
+        View v = new View(this);
+        v.setLayoutParams(new LinearLayout.LayoutParams(0, 1, weight));
+        return v;
+    }
+
     private String fmtTime(long ms) {
         if (ms <= 0) return "never";
         return new SimpleDateFormat("MMM d, yyyy h:mm a", Locale.US).format(new Date(ms));
     }
 
     private void toast(String msg) {
-        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
 }

@@ -6,10 +6,10 @@ import android.view.ViewGroup;
 
 import com.dips.adblocktest.AdFormat;
 import com.dips.adblocktest.BaseProbe;
-import com.dips.adblocktest.NetworkProbe;
 import com.dips.adblocktest.ProbeStatus;
 import com.dips.adblocktest.TestConfig;
 import com.dips.adblocktest.TestRunner;
+import com.dips.adblocktest.Ui;
 import com.vungle.ads.BannerAd;
 import com.vungle.ads.BannerAdSize;
 import com.vungle.ads.BaseAd;
@@ -24,7 +24,7 @@ import com.vungle.ads.VungleError;
 import java.util.Arrays;
 import java.util.List;
 
-/** Liftoff (Vungle) probe — the app's placements are in Test Mode ("show test ads only"). */
+/** Liftoff (Vungle) probe. */
 public class LiftoffProbe extends BaseProbe {
     private boolean initialized;
 
@@ -33,7 +33,7 @@ public class LiftoffProbe extends BaseProbe {
     @Override public List<AdFormat> getFormats() {
         return Arrays.asList(AdFormat.BANNER, AdFormat.INTERSTITIAL, AdFormat.REWARDED);
     }
-    @Override public String getSdkVersion() { return "vungle-ads 7.7.9"; }
+    @Override public String getSdkVersion() { return "vungle-ads 7.4.1"; }
     @Override public String getMethodology() {
         return "Initializes VungleAds with the application ID, then loads each placement "
                 + "(all placements are in dashboard Test Mode, so test ads are served). "
@@ -41,7 +41,7 @@ public class LiftoffProbe extends BaseProbe {
     }
 
     @Override
-    public void initialize(Context context, NetworkProbe.InitCallback callback) {
+    public void initialize(Context context, InitCallback callback) {
         runOnMain(() -> {
             if (initialized) { callback.onComplete(true, null); return; }
             try {
@@ -74,23 +74,25 @@ public class LiftoffProbe extends BaseProbe {
 
     @Override
     public void probeFormat(Activity activity, AdFormat format, ProbeCallback callback) {
-        setPendingCallback(callback);
-        beginProbe();
-        armWatchdog(activity, format);
+        long token = armProbe(activity, format, callback);
         try {
             switch (format) {
                 case INTERSTITIAL: {
                     InterstitialAd ad = new InterstitialAd(activity,
                             TestConfig.LIFTOFF_INTERSTITIAL, new AdConfig());
-                    ad.setAdListener(listener(activity, format));
-                    ad.load();
+                    ad.setAdListener(listener(token, activity, format, () -> {
+                        if (ad.canPlayAd()) ad.play(null);
+                    }));
+                    ad.load(null);
                     break;
                 }
                 case REWARDED: {
                     RewardedAd ad = new RewardedAd(activity,
                             TestConfig.LIFTOFF_REWARDED, new AdConfig());
-                    ad.setAdListener(listener(activity, format));
-                    ad.load();
+                    ad.setAdListener(listener(token, activity, format, () -> {
+                        if (ad.canPlayAd()) ad.play(null);
+                    }));
+                    ad.load(null);
                     break;
                 }
                 case BANNER: {
@@ -102,13 +104,13 @@ public class LiftoffProbe extends BaseProbe {
                                 TestRunner.bannerHost(activity).addView(
                                         ((BannerAd) baseAd).getBannerView(),
                                         new ViewGroup.LayoutParams(
-                                                ViewGroup.LayoutParams.WRAP_CONTENT,
-                                                ViewGroup.LayoutParams.WRAP_CONTENT));
+                                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                                ViewGroup.LayoutParams.MATCH_PARENT));
                             } catch (Throwable ignored) {}
-                            finishOk(activity, format);
+                            finishOk(token, activity, format, () -> Ui.showBannerDialog(activity, "Liftoff Banner", ad.getBannerView()));
                         }
                         @Override public void onAdFailedToLoad(BaseAd baseAd, VungleError error) {
-                            fail(activity, format, error);
+                            fail(token, activity, format, error);
                         }
                         @Override public void onAdStart(BaseAd baseAd) {}
                         @Override public void onAdImpression(BaseAd baseAd) {}
@@ -117,22 +119,22 @@ public class LiftoffProbe extends BaseProbe {
                         @Override public void onAdLeftApplication(BaseAd baseAd) {}
                         @Override public void onAdFailedToPlay(BaseAd baseAd, VungleError error) {}
                     });
-                    ad.load();
+                    ad.load(null);
                     break;
                 }
             }
         } catch (Throwable t) {
-            finishFail(activity, format, "exception", t.toString());
+            finishFail(token, activity, format, "exception", t.toString());
         }
     }
 
-    private BaseAdListener listener(Activity activity, AdFormat format) {
+    private BaseAdListener listener(long token, Activity activity, AdFormat format, Runnable showAdAction) {
         return new BaseAdListener() {
             @Override public void onAdLoaded(BaseAd baseAd) {
-                finishOk(activity, format);
+                finishOk(token, activity, format, showAdAction);
             }
             @Override public void onAdFailedToLoad(BaseAd baseAd, VungleError error) {
-                fail(activity, format, error);
+                fail(token, activity, format, error);
             }
             @Override public void onAdStart(BaseAd baseAd) {}
             @Override public void onAdImpression(BaseAd baseAd) {}
@@ -143,8 +145,8 @@ public class LiftoffProbe extends BaseProbe {
         };
     }
 
-    private void fail(Activity activity, AdFormat format, VungleError error) {
-        finishFail(activity, format,
+    private void fail(long token, Activity activity, AdFormat format, VungleError error) {
+        finishFail(token, activity, format,
                 String.valueOf(error.getCode()), error.getErrorMessage());
     }
 }

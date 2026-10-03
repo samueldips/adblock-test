@@ -6,11 +6,10 @@ import android.view.ViewGroup;
 
 import com.dips.adblocktest.AdFormat;
 import com.dips.adblocktest.BaseProbe;
-import com.dips.adblocktest.NetworkProbe;
 import com.dips.adblocktest.ProbeStatus;
 import com.dips.adblocktest.TestConfig;
 import com.dips.adblocktest.TestRunner;
-import com.dips.adblocktest.TestRunner;
+import com.dips.adblocktest.Ui;
 import com.inmobi.ads.AdMetaInfo;
 import com.inmobi.ads.InMobiAdRequestStatus;
 import com.inmobi.ads.InMobiBanner;
@@ -25,11 +24,7 @@ import org.json.JSONObject;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * InMobi probe. Note: InMobi SDK 10.x has no dedicated rewarded class, so the
- * rewarded placement is probed through InMobiInterstitial (the placement
- * determines the creative type server-side).
- */
+/** InMobi probe. */
 public class InMobiProbe extends BaseProbe {
     private boolean initialized;
 
@@ -50,10 +45,11 @@ public class InMobiProbe extends BaseProbe {
     }
 
     @Override
-    public void initialize(Context context, NetworkProbe.InitCallback callback) {
+    public void initialize(Context context, InitCallback callback) {
         runOnMain(() -> {
             if (initialized) { callback.onComplete(true, null); return; }
             try {
+                InMobiSdk.setLogLevel(InMobiSdk.LogLevel.DEBUG);
                 InMobiSdk.init(context, TestConfig.INMOBI_ACCOUNT_ID, new JSONObject(),
                         new SdkInitializationListener() {
                             @Override public void onInitializationComplete(Error error) {
@@ -86,63 +82,73 @@ public class InMobiProbe extends BaseProbe {
 
     @Override
     public void probeFormat(Activity activity, AdFormat format, ProbeCallback callback) {
-        setPendingCallback(callback);
-        beginProbe();
-        armWatchdog(activity, format);
+        long token = armProbe(activity, format, callback);
         try {
             switch (format) {
                 case BANNER: {
                     InMobiBanner banner = new InMobiBanner(activity, TestConfig.INMOBI_BANNER);
                     banner.setListener(new BannerAdEventListener() {
-                        @Override public void onAdLoadSucceeded(InMobiBanner b, AdMetaInfo metaInfo) {
-                            finishOk(activity, format);
+                        @Override public void onAdFetchSuccessful(InMobiBanner b, AdMetaInfo metaInfo) {
+                            finishOk(token, activity, format, () -> Ui.showBannerDialog(activity, "InMobi Banner", banner));
                         }
-                        @Override public void onAdFetchFailed(InMobiBanner ad,
-                                InMobiAdRequestStatus status) {
-                            fail(activity, format, status);
+                        @Override public void onAdLoadSucceeded(InMobiBanner b, AdMetaInfo metaInfo) {
+                            finishOk(token, activity, format, () -> Ui.showBannerDialog(activity, "InMobi Banner", banner));
+                        }
+                        @Override public void onAdFetchFailed(InMobiBanner ad, InMobiAdRequestStatus status) {
+                            fail(token, activity, format, status);
+                        }
+                        @Override public void onAdLoadFailed(InMobiBanner ad, InMobiAdRequestStatus status) {
+                            fail(token, activity, format, status);
                         }
                     });
                     TestRunner.bannerHost(activity).addView(banner,
                             new ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                                    ViewGroup.LayoutParams.WRAP_CONTENT));
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT));
                     banner.load();
                     break;
                 }
                 case INTERSTITIAL:
-                    probeInterstitial(activity, format, TestConfig.INMOBI_INTERSTITIAL);
+                    probeInterstitial(token, activity, format, TestConfig.INMOBI_INTERSTITIAL);
                     break;
                 case REWARDED:
-                    // No InMobiRewarded in SDK 10.x; the rewarded placement is served
-                    // through an interstitial request.
-                    probeInterstitial(activity, format, TestConfig.INMOBI_REWARDED);
+                    probeInterstitial(token, activity, format, TestConfig.INMOBI_REWARDED);
                     break;
             }
         } catch (Throwable t) {
-            finishFail(activity, format, "exception", t.toString());
+            finishFail(token, activity, format, "exception", t.toString());
         }
     }
 
-    private void probeInterstitial(Activity activity, AdFormat format, long placementId) {
+    private void probeInterstitial(long token, Activity activity, AdFormat format, long placementId) {
         try {
             InMobiInterstitial interstitial = new InMobiInterstitial(activity, placementId,
                     new InterstitialAdEventListener() {
-                        @Override public void onAdReceived(InMobiInterstitial ad) {
-                            finishOk(activity, format);
+                        @Override public void onAdFetchSuccessful(InMobiInterstitial ad, AdMetaInfo metaInfo) {
+                            finishOk(token, activity, format, () -> {
+                                if (ad.isReady()) ad.show();
+                            });
                         }
-                        @Override public void onAdFetchFailed(InMobiInterstitial ad,
-                                InMobiAdRequestStatus status) {
-                            fail(activity, format, status);
+                        @Override public void onAdLoadSucceeded(InMobiInterstitial ad, AdMetaInfo metaInfo) {
+                            finishOk(token, activity, format, () -> {
+                                if (ad.isReady()) ad.show();
+                            });
+                        }
+                        @Override public void onAdFetchFailed(InMobiInterstitial ad, InMobiAdRequestStatus status) {
+                            fail(token, activity, format, status);
+                        }
+                        @Override public void onAdLoadFailed(InMobiInterstitial ad, InMobiAdRequestStatus status) {
+                            fail(token, activity, format, status);
                         }
                     });
             interstitial.load();
         } catch (Throwable t) {
-            finishFail(activity, format, "exception", t.toString());
+            finishFail(token, activity, format, "exception", t.toString());
         }
     }
 
-    private void fail(Activity activity, AdFormat format, InMobiAdRequestStatus status) {
-        finishFail(activity, format,
+    private void fail(long token, Activity activity, AdFormat format, InMobiAdRequestStatus status) {
+        finishFail(token, activity, format,
                 status.getStatusCode().name(),
                 status.getMessage() == null ? status.getStatusCode().name() : status.getMessage());
     }

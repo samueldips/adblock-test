@@ -6,23 +6,21 @@ import android.view.ViewGroup;
 
 import com.dips.adblocktest.AdFormat;
 import com.dips.adblocktest.BaseProbe;
-import com.dips.adblocktest.NetworkProbe;
 import com.dips.adblocktest.ProbeStatus;
 import com.dips.adblocktest.TestConfig;
 import com.dips.adblocktest.TestRunner;
-import com.unity3d.ads.BannerAd;
-import com.unity3d.ads.BannerConfiguration;
-import com.unity3d.ads.BannerShowListener;
-import com.unity3d.ads.BannerSize;
+import com.dips.adblocktest.Ui;
 import com.unity3d.ads.IUnityAdsInitializationListener;
 import com.unity3d.ads.IUnityAdsLoadListener;
-import com.unity3d.ads.LoadListener;
 import com.unity3d.ads.UnityAds;
+import com.unity3d.services.banners.BannerErrorInfo;
+import com.unity3d.services.banners.BannerView;
+import com.unity3d.services.banners.UnityBannerSize;
 
 import java.util.Arrays;
 import java.util.List;
 
-/** Unity Ads probe (testMode=true serves Unity test ads). */
+/** Unity Ads probe. */
 public class UnityProbe extends BaseProbe {
     private boolean initialized;
 
@@ -33,16 +31,16 @@ public class UnityProbe extends BaseProbe {
     }
     @Override public String getSdkVersion() {
         try { return "unity-ads " + UnityAds.getVersion(); }
-        catch (Throwable t) { return "unity-ads 4.21.0"; }
+        catch (Throwable t) { return "unity-ads 4.12.5"; }
     }
     @Override public String getMethodology() {
-        return "Initializes Unity Ads with testMode=true, then loads each placement. "
+        return "Initializes Unity Ads in test mode or live mode, then loads each placement. "
                 + "NO_FILL maps to No fill; TIMEOUT maps to Blocked (a reachable ad server "
                 + "answers quickly in test mode); INITIALIZE_FAILED maps to Init failed.";
     }
 
     @Override
-    public void initialize(Context context, NetworkProbe.InitCallback callback) {
+    public void initialize(Context context, InitCallback callback) {
         runOnMain(() -> {
             if (initialized || UnityAds.isInitialized()) {
                 initialized = true;
@@ -78,65 +76,77 @@ public class UnityProbe extends BaseProbe {
 
     @Override
     public void probeFormat(Activity activity, AdFormat format, ProbeCallback callback) {
-        setPendingCallback(callback);
-        beginProbe();
-        armWatchdog(activity, format);
+        long token = armProbe(activity, format, callback);
         try {
             switch (format) {
                 case INTERSTITIAL:
-                    UnityAds.load(TestConfig.UNITY_INTERSTITIAL, loadListener(activity, format));
+                    probeInterstitial(token, activity, format, TestConfig.UNITY_INTERSTITIAL, false);
                     break;
                 case REWARDED:
-                    UnityAds.load(TestConfig.UNITY_REWARDED, loadListener(activity, format));
+                    probeRewarded(token, activity, format, TestConfig.UNITY_REWARDED, false);
                     break;
                 case BANNER:
-                    probeBanner(activity);
+                    probeBanner(token, activity, TestConfig.UNITY_BANNER, false);
                     break;
             }
         } catch (Throwable t) {
-            finishFail(activity, format, "exception", t.toString());
+            finishFail(token, activity, format, "exception", t.toString());
         }
     }
 
-    private IUnityAdsLoadListener loadListener(Activity activity, AdFormat format) {
-        return new IUnityAdsLoadListener() {
-            @Override public void onUnityAdsAdLoaded(String placementId) {
-                finishOk(activity, format);
+    private void probeInterstitial(long token, Activity activity, AdFormat format, String placementId, boolean isRetry) {
+        UnityAds.load(placementId, new IUnityAdsLoadListener() {
+            @Override public void onUnityAdsAdLoaded(String pId) {
+                finishOk(token, activity, format, () -> UnityAds.show(activity, pId));
             }
-            @Override public void onUnityAdsFailedToLoad(String placementId,
-                    UnityAds.UnityAdsLoadError error, String message) {
-                finishFail(activity, format, error.name(), message);
-            }
-        };
-    }
-
-    private void probeBanner(Activity activity) {
-        BannerConfiguration config = new BannerConfiguration.Builder(
-                TestConfig.UNITY_BANNER,
-                new BannerSize(320, 50),
-                new BannerShowListener() {
-                    @Override public void onImpression(BannerAd bannerAd) {}
-                    @Override public void onClicked(BannerAd bannerAd) {}
-                    @Override public void onFailedToShow(BannerAd bannerAd,
-                            com.unity3d.ads.UnityAdsError error) {}
-                }).build();
-        BannerAd.load(config, new LoadListener<BannerAd>() {
-            @Override public void onAdLoaded(BannerAd bannerAd,
-                    com.unity3d.ads.UnityAdsError error) {
-                if (bannerAd != null) {
-                    try {
-                        TestRunner.bannerHost(activity).addView(bannerAd.getView(),
-                                new ViewGroup.LayoutParams(
-                                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                                        ViewGroup.LayoutParams.WRAP_CONTENT));
-                    } catch (Throwable ignored) {}
-                    finishOk(activity, AdFormat.BANNER);
-                } else {
-                    String code = error != null ? String.valueOf(error.getCode()) : "null-ad";
-                    String msg = error != null ? error.getMessage() : "BannerAd was null";
-                    finishFail(activity, AdFormat.BANNER, code, msg);
+            @Override public void onUnityAdsFailedToLoad(String pId, UnityAds.UnityAdsLoadError error, String message) {
+                if (!isRetry && error == UnityAds.UnityAdsLoadError.INVALID_ARGUMENT) {
+                    probeInterstitial(token, activity, format, "interstitial", true);
+                    return;
                 }
+                finishFail(token, activity, format, error.name(), message);
             }
         });
+    }
+
+    private void probeRewarded(long token, Activity activity, AdFormat format, String placementId, boolean isRetry) {
+        UnityAds.load(placementId, new IUnityAdsLoadListener() {
+            @Override public void onUnityAdsAdLoaded(String pId) {
+                finishOk(token, activity, format, () -> UnityAds.show(activity, pId));
+            }
+            @Override public void onUnityAdsFailedToLoad(String pId, UnityAds.UnityAdsLoadError error, String message) {
+                if (!isRetry && error == UnityAds.UnityAdsLoadError.INVALID_ARGUMENT) {
+                    probeRewarded(token, activity, format, "rewardedVideo", true);
+                    return;
+                }
+                finishFail(token, activity, format, error.name(), message);
+            }
+        });
+    }
+
+    private void probeBanner(long token, Activity activity, String placementId, boolean isRetry) {
+        BannerView bannerView = new BannerView(activity, placementId, new UnityBannerSize(320, 50));
+        bannerView.setListener(new BannerView.IListener() {
+            @Override public void onBannerLoaded(BannerView banner) {
+                finishOk(token, activity, AdFormat.BANNER, () -> Ui.showBannerDialog(activity, "Unity Banner", bannerView));
+            }
+            @Override public void onBannerShown(BannerView banner) {}
+            @Override public void onBannerFailedToLoad(BannerView banner, BannerErrorInfo errorInfo) {
+                if (!isRetry) {
+                    probeBanner(token, activity, "banner", true);
+                    return;
+                }
+                String code = errorInfo != null && errorInfo.errorCode != null ? errorInfo.errorCode.name() : "NO_FILL";
+                String msg = errorInfo != null ? errorInfo.errorMessage : "Failed to load banner";
+                finishFail(token, activity, AdFormat.BANNER, code, msg);
+            }
+            @Override public void onBannerClick(BannerView banner) {}
+            @Override public void onBannerLeftApplication(BannerView banner) {}
+        });
+        TestRunner.bannerHost(activity).addView(bannerView,
+                new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+        bannerView.load();
     }
 }

@@ -1,15 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Merged manifest: app components + required entries from the 7 ad SDK AARs
-     (normally produced by the Gradle manifest merger). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.dips.adblocktest">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
-    <uses-permission android:name="com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE" />
     <uses-permission android:name="android.permission.ACCESS_ADSERVICES_TOPICS" />
     <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" />
 
@@ -41,116 +37,15 @@
             android:process=":crash"
             android:exported="false" />
 
-        <!-- AdMob -->
+        <!-- AdMob App ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-1400886349165197~3492271370" />
-        <activity
-            android:name="com.google.android.gms.ads.AdActivity"
-            android:exported="false"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize" />
-        <provider
-            android:name="com.google.android.gms.ads.MobileAdsInitProvider"
-            android:authorities="com.dips.adblocktest.mobileadsinitprovider"
-            android:exported="false" />
 
-        <!-- Unity Ads (+ androidx.startup for its internal initializer) -->
-        <activity
-            android:name="com.unity3d.ads.adplayer.FullScreenWebViewDisplay"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-        <service
-            android:name="com.unity3d.ads.adplayer.AdTaskRemovalDetectionService"
-            android:exported="false" />
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="com.dips.adblocktest.androidx-startup"
-            android:exported="false">
-            <meta-data
-                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
-                android:value="androidx.startup" />
-            <meta-data
-                android:name="com.unity3d.services.core.configuration.AdsSdkInitializer"
-                android:value="androidx.startup" />
-        </provider>
-
-        <!-- ironSource / LevelPlay -->
-        <activity android:name="com.ironsource.sdk.controller.ControllerActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-        <activity android:name="com.ironsource.sdk.controller.InterstitialActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-        <activity android:name="com.ironsource.sdk.controller.OpenUrlActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-        <activity android:name="com.unity3d.ironsourceads.internal.services.InlineStoreActivity"
-            android:exported="false" />
-        <provider
-            android:name="com.ironsource.lifecycle.IronsourceLifecycleProvider"
-            android:authorities="com.dips.adblocktest.IronsourceLifecycleProvider"
-            android:exported="false" />
-        <provider
-            android:name="com.ironsource.lifecycle.LevelPlayActivityLifecycleProvider"
-            android:authorities="com.dips.adblocktest.LevelPlayActivityLifecycleProvider"
-            android:exported="false" />
-
-        <!-- InMobi -->
-        <activity
-            android:name="com.inmobi.ads.rendering.InMobiAdActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-        <provider
-            android:name="com.squareup.picasso.PicassoProvider"
-            android:authorities="com.dips.adblocktest.com.squareup.picasso"
-            android:exported="false" />
-
-        <!-- Chartboost -->
-        <activity
-            android:name="com.chartboost.sdk.view.CBImpressionActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-
-        <!-- Start.io -->
+        <!-- Start.io App ID -->
         <meta-data
             android:name="com.startapp.sdk.APPLICATION_ID"
             android:value="209734902" />
-        <activity android:name="com.startapp.sdk.adsbase.consent.ConsentActivity"
-            android:exported="false" />
-        <activity android:name="com.startapp.sdk.ads.list3d.List3DActivity"
-            android:exported="false" />
-        <activity android:name="com.startapp.sdk.ads.interstitials.OverlayActivity"
-            android:exported="false" />
-        <service android:name="com.startapp.sdk.cachedservice.BackgroundService"
-            android:exported="false" />
-        <service android:name="com.startapp.sdk.jobs.SchedulerService"
-            android:exported="false"
-            android:permission="android.permission.BIND_JOB_SERVICE" />
-        <receiver android:name="com.startapp.sdk.adsbase.remoteconfig.BootCompleteListener"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-        <provider
-            android:name="com.startapp.sdk.adsbase.StartAppInitProvider"
-            android:authorities="com.dips.adblocktest.startappinitprovider"
-            android:exported="false" />
-
-        <!-- Liftoff (Vungle) -->
-        <activity
-            android:name="com.vungle.ads.internal.ui.VungleActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-        <provider
-            android:name="com.vungle.ads.VungleProvider"
-            android:authorities="com.dips.adblocktest.vungle-provider"
-            android:exported="false" />
-
-        <!-- Play Core (in-app updates dialog) -->
-        <activity
-            android:name="com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
-            android:exported="false" />
 
     </application>
 </manifest>
